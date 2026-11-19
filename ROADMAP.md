@@ -8,7 +8,7 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Backend scaffold (NestJS starter → `tomo-gym-backend`, ACL-based auth, CI) | Not started |
+| 1 | Backend scaffold (NestJS starter → `tomo-gym-backend`, ACL-based auth, CI) | Done |
 | 2 | Accounts — User (IANA timezone, locale, body profile), email + password signup (email verification deferred to Step 6) | Not started |
 | 3 | Workout domain — schema migration (exercises + aliases, sessions, entries, chat transcript, agent action log, idempotency, LLM usage), computed day numbers, deterministic calorie calc, REST CRUD | Not started |
 | 4 | Agent vertical slice — `POST /chat` → Claude with tools → `log_entry` → row in Postgres → streamed confirmation | Not started |
@@ -26,6 +26,17 @@ Explicitly out of MVP scope per constitution rules 21–26: native app, voice in
 ## Step 1 — detail
 
 Mirror denwa-alert Step 1: scaffold `backend/` from monstar-lab-oss/nestjs-starter-rest-api, realign auth to JWT-at-controller / ACL-in-service (no `@Roles`), keep the `article` module as a frozen reference, CI workflows at repo root with a `backend/**` path filter, local dev with Nest on the host and Postgres in Docker. Copy conventions from denwa's `backend/CLAUDE.md` rather than re-deriving them.
+
+### Done (2026-11-19)
+
+- `backend/` copied from denwa-alert's backend (tracked files only, no git history) rather than re-scaffolded from the bare starter, so the auth realignment, ACL pattern, logging, Docker and lint setup come over intact. Package renamed `tomo-gym-backend`; Swagger titled "tomo-gym API".
+- **Removed:** denwa's `organization` / `team` / `on-call` / `alerting` modules and their e2e tests; email verification (token entity / repo / service, mailer, `@aws-sdk/client-ses`, the `verify-email` / `resend-verification` endpoints), which returns in Step 6; `User.phone` and the self-output DTO that only existed for it; the deploy workflow (Step 9).
+- **Migrations squashed** to a fresh base: `CreateUsers` (no `username`, `emailVerifiedAt` or `phone`) + `CreateArticles`. The drift check (`migration:generate --check`) reports no changes.
+- **Privacy alignment (constitution rule 16):** `USER` can now read only themself (denwa allowed reading any user, and user records carry email). New e2e tests cover it: a regular user can read their own profile, gets 401 on another user's and on `GET /users`.
+- **Upstream ACL bug fixed:** `BaseAclService` threw "Resource is required for ruleCallback" on resource-less checks (e.g. `Action.List`) whenever an *unrelated* callback rule existed, so a regular user's `GET /users` returned 500 instead of 401. Rules that don't cover the requested action are now skipped before their callback runs, with regression unit tests. denwa-alert still has this bug.
+- **Local dev ports** 3001 (API) / 5433 (Postgres) / 8081 (adminer), offset from denwa's so both run at once. The compose file sets `name: tomo-gym`, since both repos keep it in a `backend/` directory, which would otherwise share container and volume names (and Postgres data). `TEST_DB_PORT` is configurable (default 5433).
+- **CI:** `backend-build` and `backend-tests` at repo root. The tests workflow generates a throwaway JWT keypair per run instead of reading repo secrets, so the repo needs no secrets.
+- Verified: build and lint clean; 103/103 unit tests; 33/33 e2e tests, also run CI-style (no `.env`, env vars only); smoke test on the built app: `POST /api/v1/auth/register` → `POST /api/v1/auth/login` → `GET /api/v1/users/me` 200, and `GET /api/v1/users` as a regular user returns 401.
 
 ## Step 2 — detail
 
@@ -143,9 +154,9 @@ Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5)
 
 Per-group visibility settings, notifications (so a reaction is only seen when the user opens the app), DMs and group chat, challenges with custom goals, admin reporting, and the agent reading friends' data or posting reactions or comments for the user.
 
-### Open decision
+### Streak definition (decided 2026-11-19)
 
-- **Streak definition.** Recommendation: current streak in weeks (consecutive weeks with at least one training day, in the member's timezone), plus days trained this week and this month. Daily streaks punish rest days, which is bad advice for strength training.
+- Current streak counts **weeks**: consecutive weeks with at least one training day, with week boundaries in the member's own timezone. Leaderboards also show days trained this week and this month. Daily streaks were rejected because they punish rest days, which is bad advice for strength training.
 
 ## Sequencing notes
 
@@ -166,6 +177,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-19** — **Step 1 done; streak definition locked.** The backend was copied from denwa-alert's rather than the bare starter (details under Step 1 — Done). Two deliberate departures from denwa: users can no longer read other users (constitution rule 16), and `BaseAclService` no longer turns resource-less denials into 500s. CI generates throwaway JWT keys, so the repo needs no secrets. Step 12's streaks count weeks, not days.
 - **2026-11-19** — **Friend groups added to MVP (new Step 12).** Constitution rules 16 (privacy) and 24 (social scope) rewritten; rule 10 now says the agent only touches the caller's own data. Choices: built after the core logging loop and screens but before launch; each user chooses activity-only (default) or full-detail visibility; invite link only; reactions, comments and activity-based leaderboards. Body metrics, email and chat transcript are never shared. Step 3 gains separate summary and detail DTOs so activity-only views can't leak details. Step 1 is unchanged: denwa's tenancy code gets copied back at Step 12 rather than carried in unused.
 - **2026-11-19** — **Email verification deferred from Step 2 to Step 6.** No domain has been bought yet, and SES needs a verified domain identity. Verification only has to exist before production signup opens, so it joins the spend limits in Step 6 (now "Signup gate"). Step 9 (deploy) is also marked blocked on the domain. Steps 1–5 and 7–8 run locally in the meantime.
 - **2026-11-19** — **Per-set storage chosen (`entry_sets` child table).** Open signup means users will log pyramids, drop sets and short last sets, which uniform sets/reps/weight columns can't represent. Migrating every user's history later would cost far more than roughly a day of extra work in Steps 3 and 5 now. `log_entry` / `update_entry` take a list of sets; "top set" is the default figure for progression.
