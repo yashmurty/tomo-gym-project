@@ -1,6 +1,6 @@
 # tomo-gym
 
-Conversational workout logger. Users type workouts in plain text → a server-side Claude agent parses them and writes structured rows to Postgres through the backend's services → a one-line confirmation streams back. Users can also ask questions about their history. Mobile-first web, open signup.
+Conversational workout logger. Users type workouts in plain text → a server-side Claude agent parses them and writes structured rows to Postgres through the backend's services → a one-line confirmation streams back. Users can also ask questions about their history, and join invite-only friend groups (feed, reactions, comments, leaderboards). Mobile-first web, open signup.
 
 ## Source of truth for rules
 
@@ -32,6 +32,7 @@ These are in [constitution.md](constitution.md) but are the ones most likely to 
 - **Dates come from the server.** Inject the current timestamp + the user's IANA timezone on every LLM request. Never let the model infer the date from history (rule 8).
 - **The LLM never computes derived values.** Day numbers, calories and unit conversion are deterministic server code (rule 9).
 - **Agent tools wrap services.** Same validation + ACL as REST; `user_id` comes from the JWT, never from tool arguments (rule 10).
+- **Privacy by default.** Body metrics, email and chat transcript are never shown to anyone else. Friends see workouts only at the owner's chosen level (activity-only by default), enforced in services with separate DTOs per level (rule 16).
 - **Secrets via environment variables only**, especially the Anthropic API key, which never reaches the client.
 - **Every feature gets at least one unit test**; prompt / tool / model changes re-run the parsing eval set (rules 14–15).
 - **If a feature isn't in the spec, don't build it** (rule 26).

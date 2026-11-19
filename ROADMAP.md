@@ -19,8 +19,9 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 9 | Deploy (blocked on buying the domain) — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
 | 10 | Tests + evals per feature (constitution rules 14–15) | Ongoing discipline, applied inside each step |
 | 11 | Pre-launch — landing page, privacy policy, ToS, SES sandbox exit | Not started |
+| 12 | Friend groups — invite-link groups, per-user visibility (activity-only / full), group feed, reactions, comments, leaderboards (backend + screens; ships before launch) | Not started |
 
-Explicitly out of MVP scope per constitution rules 21–26: native app, voice input, billing, languages other than EN/JP, social features, integrations, data import, progression suggestions, charts.
+Explicitly out of MVP scope per constitution rules 21–26: native app, voice input, billing, languages other than EN/JP, social features beyond friend groups (public profiles, search, followers, DMs, notifications), integrations, data import, progression suggestions, charts.
 
 ## Step 1 — detail
 
@@ -58,6 +59,7 @@ Changes vs. the brief's model, each to be confirmed when implementation starts:
 - One TypeORM migration for the schema above, plus a seed for the exercise catalog and MET values.
 - `CalorieService` (pure, table-driven, unit-tested against hand-computed values).
 - Day-number query and REST CRUD for sessions and entries (these also power the edit UI in Step 8), all with ACL in services.
+- Two output DTOs for a training day from the start: `DaySummaryOutput` (date, exercises, muscle groups, day number; no sets, reps or weights) and `DayDetailOutput`. Step 12 serves activity-only friends from the summary DTO (constitution rule 16), so it must never gain detail fields.
 
 ## Step 4 — detail
 
@@ -113,11 +115,44 @@ Each gets its own sub-plan when we reach it. Notes so far:
 - **9**: follow denwa-alert's post-2026-11-09 pattern: a new database on the shared RDS, a container on the shared EC2 host behind its reverse proxy, own ECR + S3 + CloudFront + DNS in `infra/`. Read octirion-platform's `infra/CLAUDE.md` first. **Blocked on buying the domain** (TLS, CloudFront and SES identity all need it).
 - **11**: landing page, privacy policy and ToS ship in EN and JP. The privacy policy must disclose body metrics as personal data and Anthropic as a processor of chat content.
 
+## Step 12 — detail
+
+Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5) and the core screens (Step 8), and shipped before launch. Backend and screens land together in this step.
+
+### Entities (sketch; settle when starting)
+
+- `Group`: name, `ownerUserId`, hashed invite token, `inviteEnabled`.
+- `GroupMembership`: `(groupId, userId)` unique, role `owner` | `member`, `joinedAt`.
+- `Reaction`: `(groupId, sessionId, userId, emoji)` unique, with emoji limited to a fixed set.
+- `Comment`: `groupId`, `sessionId`, `authorUserId`, body (≤ 280 chars), `deletedAt`.
+- `User.workoutVisibility`: `activity` (default) | `full`, one setting per user across all their groups.
+
+### Locked design decisions
+
+- **Reactions and comments are scoped to a group**, not to the session alone. If Ken is in two of your groups, a comment in group A is invisible to group B, so nobody learns about other groups through a shared thread.
+- **Joining is by invite link only.** Groups aren't searchable. The owner can rotate the link (old links stop working), disable it, and remove members.
+- **Moderation, the minimum needed with open signup:** an author can delete their own comment, the group owner can delete any comment in the group and remove members, and anyone can leave. Comment posting is rate-limited per user. Reporting to an admin is out of scope.
+- **The owner leaving** must first transfer ownership or delete the group.
+- **Group members see a display name** (`User.name`), never the email address.
+- **Leaderboards use activity metrics only** (days trained, streaks), so they reveal nothing beyond activity-only visibility. There are no weight or volume leaderboards: they would leak details for activity-only users and unfairly favour heavier lifters.
+- **Time boundaries are per member.** "Trained today" and week boundaries use each member's own timezone (constitution rule 8).
+- **Caps:** ≤ 50 members per group, ≤ 10 groups per user.
+- **Reuse denwa-alert's tenancy code.** Its `Organization` + `Membership` + `OrgScopedGuard` / `OrgAdminGuard` + ACL patterns map onto `Group` + `GroupMembership`, minus denwa's Team layer, email invitations and join requests. Copy them from the denwa repo at this step; Step 1 still strips them.
+
+### Out of scope for 12
+
+Per-group visibility settings, notifications (so a reaction is only seen when the user opens the app), DMs and group chat, challenges with custom goals, admin reporting, and the agent reading friends' data or posting reactions or comments for the user.
+
+### Open decision
+
+- **Streak definition.** Recommendation: current streak in weeks (consecutive weeks with at least one training day, in the member's timezone), plus days trained this week and this month. Daily streaks punish rest days, which is bad advice for strength training.
+
 ## Sequencing notes
 
 - **1 → 2 → 3 → 4 → 5** is the backend critical path; each step needs the previous schema.
 - **6 must ship before production signup opens.** It can be built in parallel with 5. Its email-verification half needs the domain (SES identity); the spend-limit half doesn't.
 - **7 can start any time after 4** (the SSE contract is the thing to stabilise); 8 needs 5 for undo/edit.
+- **12 comes after 5 and 8 and before launch (11 goes live).** It needs the day DTOs from 3 and the core screens from 8.
 - **9 pulls forward opportunistically once the domain is bought.** Deploying the Step 4 slice behind closed signup is a good early smoke test. Until then, all work runs locally.
 
 ## Open questions — recommendations (confirm or override)
@@ -131,6 +166,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-19** — **Friend groups added to MVP (new Step 12).** Constitution rules 16 (privacy) and 24 (social scope) rewritten; rule 10 now says the agent only touches the caller's own data. Choices: built after the core logging loop and screens but before launch; each user chooses activity-only (default) or full-detail visibility; invite link only; reactions, comments and activity-based leaderboards. Body metrics, email and chat transcript are never shared. Step 3 gains separate summary and detail DTOs so activity-only views can't leak details. Step 1 is unchanged: denwa's tenancy code gets copied back at Step 12 rather than carried in unused.
 - **2026-11-19** — **Email verification deferred from Step 2 to Step 6.** No domain has been bought yet, and SES needs a verified domain identity. Verification only has to exist before production signup opens, so it joins the spend limits in Step 6 (now "Signup gate"). Step 9 (deploy) is also marked blocked on the domain. Steps 1–5 and 7–8 run locally in the meantime.
 - **2026-11-19** — **Per-set storage chosen (`entry_sets` child table).** Open signup means users will log pyramids, drop sets and short last sets, which uniform sets/reps/weight columns can't represent. Migrating every user's history later would cost far more than roughly a day of extra work in Steps 3 and 5 now. `log_entry` / `update_entry` take a list of sets; "top set" is the default figure for progression.
 - **2026-11-19** — **EN/JP across the whole product.** Constitution rule 23 changed from English-only to EN + JP for the app UI, agent replies and marketing pages, unlike denwa-alert, where only the marketing pages are bilingual. Knock-on effects: `User.locale` (Step 2), bilingual catalog names and aliases (Step 3), Japanese inputs in the eval set (Step 5), message catalogs from the first screen (Step 8), bilingual legal pages (Step 11).
