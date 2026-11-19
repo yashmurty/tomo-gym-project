@@ -9,14 +9,14 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | # | Step | Status |
 |---|---|---|
 | 1 | Backend scaffold (NestJS starter → `tomo-gym-backend`, ACL-based auth, CI) | Not started |
-| 2 | Accounts — User (email verification, IANA timezone, body profile), open signup | Not started |
+| 2 | Accounts — User (IANA timezone, locale, body profile), email + password signup (email verification deferred to Step 6) | Not started |
 | 3 | Workout domain — schema migration (exercises + aliases, sessions, entries, chat transcript, agent action log, idempotency, LLM usage), computed day numbers, deterministic calorie calc, REST CRUD | Not started |
 | 4 | Agent vertical slice — `POST /chat` → Claude with tools → `log_entry` → row in Postgres → streamed confirmation | Not started |
 | 5 | Full agent toolset — corrections, bulk date moves, "same as last time", alias learning, history Q&A, model routing, parsing eval set | Not started |
-| 6 | Cost & abuse guards — per-user rate limit, token budget, usage reporting (must ship before open signup goes live) | Not started |
+| 6 | Signup gate — email verification (SES), per-user rate limit, token budget, usage reporting (must ship before open signup goes live; SES needs the domain) | Not started |
 | 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Not started |
 | 8 | Frontend screens — auth, chat logger with streaming + undo, history list/edit, profile | Not started |
-| 9 | Deploy — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
+| 9 | Deploy (blocked on buying the domain) — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
 | 10 | Tests + evals per feature (constitution rules 14–15) | Ongoing discipline, applied inside each step |
 | 11 | Pre-launch — landing page, privacy policy, ToS, SES sandbox exit | Not started |
 
@@ -29,7 +29,7 @@ Mirror denwa-alert Step 1: scaffold `backend/` from monstar-lab-oss/nestjs-start
 ## Step 2 — detail
 
 - `User` gains: `timezone` (IANA string, required, prefilled from the browser at signup), `weightKg`, `heightCm`, `birthDate`, `sex`, `weightUnit` display preference (`kg` | `lb`), `locale` (`en` | `ja`, prefilled from the browser). Storage is always kg.
-- Email verification (SES), same flow as denwa-alert.
+- No email verification yet: it needs SES, and SES needs a verified domain, which isn't bought yet. It moves to Step 6.
 - Open signup is allowed in code from this step, but production signup stays closed until Step 6 ships.
 
 ## Step 3 — detail
@@ -103,22 +103,22 @@ Seed it from the brief's real inputs (varied separators, name after numbers, "lg
 
 ## Step 6 — detail
 
-Required before production signup opens (constitution rule 17): a per-user request rate limit, a daily and monthly token budget checked before every Claude call, a friendly "limit reached" response, and a simple admin view of per-user spend from `llm_usage`.
+Required before production signup opens (constitution rules 5 and 17). **Email verification**: the same SES flow as denwa-alert (copy it from there), with unverified users unable to call the agent. **Spend limits**: a per-user request rate limit, a daily and monthly token budget checked before every Claude call, a friendly "limit reached" response, and a simple admin view of per-user spend from `llm_usage`.
 
 ## Steps 7–11 — detail
 
 Each gets its own sub-plan when we reach it. Notes so far:
 
 - **8**: the chat logger is the primary screen. Each confirmation shows the parsed row(s) and an **Undo** button that reverts the whole turn via `agent_actions`. Undo stays available after a page reload. All UI strings go through EN/JP message catalogs from the first screen (no hardcoded copy); the language toggle updates `User.locale`.
-- **9**: follow denwa-alert's post-2026-11-09 pattern: a new database on the shared RDS, a container on the shared EC2 host behind its reverse proxy, own ECR + S3 + CloudFront + DNS in `infra/`. Read octirion-platform's `infra/CLAUDE.md` first.
+- **9**: follow denwa-alert's post-2026-11-09 pattern: a new database on the shared RDS, a container on the shared EC2 host behind its reverse proxy, own ECR + S3 + CloudFront + DNS in `infra/`. Read octirion-platform's `infra/CLAUDE.md` first. **Blocked on buying the domain** (TLS, CloudFront and SES identity all need it).
 - **11**: landing page, privacy policy and ToS ship in EN and JP. The privacy policy must disclose body metrics as personal data and Anthropic as a processor of chat content.
 
 ## Sequencing notes
 
 - **1 → 2 → 3 → 4 → 5** is the backend critical path; each step needs the previous schema.
-- **6 must ship before production signup opens.** It can be built in parallel with 5.
+- **6 must ship before production signup opens.** It can be built in parallel with 5. Its email-verification half needs the domain (SES identity); the spend-limit half doesn't.
 - **7 can start any time after 4** (the SSE contract is the thing to stabilise); 8 needs 5 for undo/edit.
-- **9 pulls forward opportunistically.** Deploying the Step 4 slice behind closed signup is a good early smoke test.
+- **9 pulls forward opportunistically once the domain is bought.** Deploying the Step 4 slice behind closed signup is a good early smoke test. Until then, all work runs locally.
 
 ## Open questions — recommendations (confirm or override)
 
@@ -131,6 +131,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-19** — **Email verification deferred from Step 2 to Step 6.** No domain has been bought yet, and SES needs a verified domain identity. Verification only has to exist before production signup opens, so it joins the spend limits in Step 6 (now "Signup gate"). Step 9 (deploy) is also marked blocked on the domain. Steps 1–5 and 7–8 run locally in the meantime.
 - **2026-11-19** — **Per-set storage chosen (`entry_sets` child table).** Open signup means users will log pyramids, drop sets and short last sets, which uniform sets/reps/weight columns can't represent. Migrating every user's history later would cost far more than roughly a day of extra work in Steps 3 and 5 now. `log_entry` / `update_entry` take a list of sets; "top set" is the default figure for progression.
 - **2026-11-19** — **EN/JP across the whole product.** Constitution rule 23 changed from English-only to EN + JP for the app UI, agent replies and marketing pages, unlike denwa-alert, where only the marketing pages are bilingual. Knock-on effects: `User.locale` (Step 2), bilingual catalog names and aliases (Step 3), Japanese inputs in the eval set (Step 5), message catalogs from the first screen (Step 8), bilingual legal pages (Step 11).
 - **2026-11-18** — **Project bootstrapped from the conversational-logger brief.** Constitution and roadmap created, modelled on denwa-alert's. Decisions: stack and conventions reused from denwa-alert; MVP is mobile-first web / PWA (native app and voice deferred); open signup from day one, so per-user LLM rate limits and budgets became MVP scope (Step 6, constitution rule 17); no import of the ~45 Notion-logged sessions, users start fresh; hosting on octirion-platform. The brief's data model and tool list were revised (Step 3 critique, Step 5 tool table): implicit sessions, computed day numbers, an alias table, an agent action log for undo, and request-level idempotency.
