@@ -7,6 +7,9 @@ import { LoginInput } from '../../src/auth/dtos/auth-login-input.dto';
 import { RefreshTokenInput } from '../../src/auth/dtos/auth-refresh-token-input.dto';
 import { RegisterInput } from '../../src/auth/dtos/auth-register-input.dto';
 import { AuthTokenOutput } from '../../src/auth/dtos/auth-token-output.dto';
+import { VALIDATION_PIPE_OPTIONS } from '../../src/shared/constants';
+import { LOCALE } from '../../src/shared/constants/locale.constant';
+import { WEIGHT_UNIT } from '../../src/shared/units/weight';
 import { AppModule } from './../../src/app.module';
 import {
   closeDBAfterTest,
@@ -28,7 +31,7 @@ describe('AuthController (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe());
+    app.useGlobalPipes(new ValidationPipe(VALIDATION_PIPE_OPTIONS));
     await app.init();
 
     const adminUserTokens = await seedAdminUser(app);
@@ -46,9 +49,10 @@ describe('AuthController (e2e)', () => {
     const registerInput: RegisterInput = {
       name: 'e2etester',
       password: '12345678',
-      roles: [ROLE.USER],
-      isAccountDisabled: false,
       email: 'e2etester@random.com',
+      timezone: 'Asia/Tokyo',
+      locale: LOCALE.JA,
+      ageConfirmed: true,
     };
 
     const registerOutput = {
@@ -57,6 +61,10 @@ describe('AuthController (e2e)', () => {
       roles: [ROLE.USER],
       isAccountDisabled: false,
       email: 'e2etester@random.com',
+      timezone: 'Asia/Tokyo',
+      locale: LOCALE.JA,
+      weightKg: null,
+      weightUnit: WEIGHT_UNIT.KG,
     };
 
     it('should successfully register a new user', async () => {
@@ -82,6 +90,51 @@ describe('AuthController (e2e)', () => {
         .post('/auth/register')
         .send(invalidRegisterInput)
         .expect(HttpStatus.BAD_REQUEST);
+    });
+
+    it.each([
+      ['an unknown time zone', { timezone: 'Mars/Base' }],
+      ['a fixed UTC offset', { timezone: '+09:00' }],
+      ['no time zone', { timezone: undefined }],
+      ['the age box unticked', { ageConfirmed: false }],
+      ['no age confirmation', { ageConfirmed: undefined }],
+      ['an unsupported locale', { locale: 'fr' }],
+      ['an implausible weight', { weight: 900 }],
+    ])('rejects signup with %s', async (_label, override) => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ ...registerInput, email: 'rejected@random.com', ...override })
+        .expect(HttpStatus.BAD_REQUEST);
+    });
+
+    it('ignores a smuggled admin role', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          ...registerInput,
+          email: 'smuggler@random.com',
+          roles: [ROLE.ADMIN],
+        })
+        .expect(HttpStatus.CREATED)
+        .expect((res) => {
+          expect(res.body.data.roles).toEqual([ROLE.USER]);
+        });
+    });
+
+    it('stores an optional signup weight in kg', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          ...registerInput,
+          email: 'pounds@random.com',
+          weight: 160,
+          weightUnit: WEIGHT_UNIT.LB,
+        })
+        .expect(HttpStatus.CREATED)
+        .expect((res) => {
+          expect(res.body.data.weightKg).toBe(72.57);
+          expect(res.body.data.weightUnit).toBe(WEIGHT_UNIT.LB);
+        });
     });
   });
 

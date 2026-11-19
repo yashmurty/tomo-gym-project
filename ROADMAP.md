@@ -9,7 +9,7 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | # | Step | Status |
 |---|---|---|
 | 1 | Backend scaffold (NestJS starter → `tomo-gym-backend`, ACL-based auth, CI) | Done |
-| 2 | Accounts — User (IANA timezone, locale, body profile), email + password signup (email verification deferred to Step 6) | Not started |
+| 2 | Accounts — User (IANA timezone, locale, body weight + display unit, age confirmation), email + password signup (email verification deferred to Step 6) | Done |
 | 3 | Workout domain — schema migration (exercises + aliases, sessions, entries, chat transcript, agent action log, idempotency, LLM usage), computed day numbers, deterministic calorie calc, REST CRUD | Not started |
 | 4 | Agent vertical slice — `POST /chat` → Claude with tools → `log_entry` → row in Postgres → streamed confirmation | Not started |
 | 5 | Full agent toolset — corrections, bulk date moves, "same as last time", alias learning, history Q&A, model routing, parsing eval set | Not started |
@@ -40,9 +40,23 @@ Mirror denwa-alert Step 1: scaffold `backend/` from monstar-lab-oss/nestjs-start
 
 ## Step 2 — detail
 
-- `User` gains: `timezone` (IANA string, required, prefilled from the browser at signup), `weightKg`, `heightCm`, `birthDate`, `sex`, `weightUnit` display preference (`kg` | `lb`), `locale` (`en` | `ja`, prefilled from the browser). Storage is always kg.
+- `User` gains:
+  - `timezone`: IANA name, required, prefilled from the browser at signup. Validated with `Intl` and **stored exactly as sent**. Node's ICU "canonicalises" in inconsistent, version-dependent directions (e.g. `Asia/Kolkata` → legacy `Asia/Calcutta`), and any valid name gives the same results.
+  - `locale`: `en` | `ja`, required, prefilled from the browser.
+  - `weightKg`: nullable. Always stored in kg. Input is `weight` in `weightUnit`; the server converts lb → kg (constitution rule 9). Optional at signup; the app asks the first time a calorie estimate needs it.
+  - `weightUnit`: `kg` | `lb`, display preference, default `kg`.
+  - `ageConfirmedAt`: set when the user ticks "I'm at least 16" at signup.
+- **Not collected** *(decided 2026-11-19)*: height, birth date and sex. No MVP feature uses them, and collecting unused health data is a privacy liability (constitution rule 16). The minimum age (16) is a signup checkbox plus a ToS clause instead of a birth date.
 - No email verification yet: it needs SES, and SES needs a verified domain, which isn't bought yet. It moves to Step 6.
 - Open signup is allowed in code from this step, but production signup stays closed until Step 6 ships.
+
+### Done (2026-11-19)
+
+- Migration `AddProfileToUsers` adds `timezone`, `locale`, `weightKg` (`numeric(5,2)`), `weightUnit` (default `kg`) and `ageConfirmedAt` (`timestamptz`). Existing rows are backfilled via temporary defaults (`UTC` / `en`) that are then dropped. Verified on a DB with an existing user; reverts cleanly; drift check clean.
+- `POST /auth/register` requires `timezone`, `locale` and `ageConfirmed: true`; `weight` + `weightUnit` are optional. **Signup now builds the new user field by field** instead of spreading the request body, so smuggled fields (e.g. `roles: ["ADMIN"]`) are ignored. `UserService.updateUser` was changed the same way: the starter's `{ ...user, ...input }` let a caller that bypasses HTTP validation (agent tools, CLI, tests) set `roles`. Not reachable over real HTTP, where `main.ts` whitelists fields. The auth and user e2e tests now use the production `VALIDATION_PIPE_OPTIONS`.
+- `PATCH /users/:id` (self only) updates `timezone`, `locale`, `weightUnit` and `weight`. `weight` is read in the unit sent alongside it, else the saved unit, and `null` clears it.
+- Shared helpers: `isValidTimezone` / `@IsIanaTimezone` (`shared/time`); `toKg` / `toBodyWeightKg` with the exact lb factor and a 20–400 kg range checked *after* conversion (`shared/units`); `numericTransformer` so `numeric` columns read back as numbers (`shared/typeorm`); `LOCALE` enum.
+- Verified: build and lint clean; 128/128 unit tests; 49/49 e2e tests (added: invalid / offset / missing timezone, unticked age box, bad locale, implausible weight, smuggled role, lb signup, profile updates, alias stored as sent, editing another user denied); smoke test on the built app.
 
 ## Step 3 — detail
 
@@ -64,6 +78,13 @@ Changes vs. the brief's model, each to be confirmed when implementation starts:
 12. **Entries link to the message that created them** (`source_message_id`) in addition to `raw_input`. This powers per-turn undo and "show me what I typed".
 13. **`messages` stores structured content** (jsonb content blocks including tool_use / tool_result), not just text, so history can be replayed to the API faithfully. Only a recent window is sent per request.
 14. **New table `llm_usage`**: user, message, model, input / output / cache-read / cache-write tokens, timestamp. Feeds the budget check in Step 6.
+
+### Dates vs timestamps *(decided 2026-11-19)*
+
+- The day a workout belongs to is a Postgres `DATE` (`sessions.date`, user-local calendar day), never derived from a timestamp. A timestamp's day depends on which timezone converts it, so travel or a timezone change would move past workouts and shift day numbers and streaks. Backdated entries ("I did legs yesterday") also have no time of day to store.
+- "Today" is resolved once per request from the current instant + the user's timezone (constitution rule 8), then stored as a date.
+- `created_at` columns stay `timestamptz` (ordering, audit, undo).
+- `DATE` values travel as `'YYYY-MM-DD'` strings end to end, never JS `Date` objects (`new Date('2026-11-19')` is UTC midnight and can render as the 18th). A test pins this.
 
 ### Deliverables
 
@@ -124,7 +145,7 @@ Each gets its own sub-plan when we reach it. Notes so far:
 
 - **8**: the chat logger is the primary screen. Each confirmation shows the parsed row(s) and an **Undo** button that reverts the whole turn via `agent_actions`. Undo stays available after a page reload. All UI strings go through EN/JP message catalogs from the first screen (no hardcoded copy); the language toggle updates `User.locale`.
 - **9**: follow denwa-alert's post-2026-11-09 pattern: a new database on the shared RDS, a container on the shared EC2 host behind its reverse proxy, own ECR + S3 + CloudFront + DNS in `infra/`. Read octirion-platform's `infra/CLAUDE.md` first. **Blocked on buying the domain** (TLS, CloudFront and SES identity all need it).
-- **11**: landing page, privacy policy and ToS ship in EN and JP. The privacy policy must disclose body metrics as personal data and Anthropic as a processor of chat content.
+- **11**: landing page, privacy policy and ToS ship in EN and JP. The privacy policy must disclose body weight as personal data and Anthropic as a processor of chat content.
 
 ## Step 12 — detail
 
@@ -177,6 +198,8 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-19** — **Step 2 done.** Accounts carry timezone, locale, weight (kg) + display unit, and age confirmation. Signup maps fields explicitly rather than trusting the request body. Details under Step 2 — Done.
+- **2026-11-19** — **Step 2 data minimised; dates vs timestamps settled.** Height, birth date and sex dropped from the user profile: no MVP feature uses them. Minimum age 16 via a signup checkbox (`ageConfirmedAt`) instead of a birth date. Constitution rule 16 now says to collect only data a feature uses. Timezones are validated but stored as sent (ICU alias canonicalisation is inconsistent across Node versions). Step 3: a workout's day is a `DATE`, not a timestamp, carried as a string.
 - **2026-11-19** — **Step 1 done; streak definition locked.** The backend was copied from denwa-alert's rather than the bare starter (details under Step 1 — Done). Two deliberate departures from denwa: users can no longer read other users (constitution rule 16), and `BaseAclService` no longer turns resource-less denials into 500s. CI generates throwaway JWT keys, so the repo needs no secrets. Step 12's streaks count weeks, not days.
 - **2026-11-19** — **Friend groups added to MVP (new Step 12).** Constitution rules 16 (privacy) and 24 (social scope) rewritten; rule 10 now says the agent only touches the caller's own data. Choices: built after the core logging loop and screens but before launch; each user chooses activity-only (default) or full-detail visibility; invite link only; reactions, comments and activity-based leaderboards. Body metrics, email and chat transcript are never shared. Step 3 gains separate summary and detail DTOs so activity-only views can't leak details. Step 1 is unchanged: denwa's tenancy code gets copied back at Step 12 rather than carried in unused.
 - **2026-11-19** — **Email verification deferred from Step 2 to Step 6.** No domain has been bought yet, and SES needs a verified domain identity. Verification only has to exist before production signup opens, so it joins the spend limits in Step 6 (now "Signup gate"). Step 9 (deploy) is also marked blocked on the domain. Steps 1–5 and 7–8 run locally in the meantime.

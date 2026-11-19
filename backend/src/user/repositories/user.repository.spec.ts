@@ -3,6 +3,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 
 import { ROLE } from '../../auth/constants/role.constant';
+import { LOCALE } from '../../shared/constants/locale.constant';
+import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { User } from '../entities/user.entity';
 import { UserRepository } from './user.repository';
 
@@ -49,6 +51,11 @@ describe('UserRepository', () => {
         email: 'default-user@random.com',
         createdAt: currentDate,
         updatedAt: currentDate,
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
+        weightKg: null,
+        weightUnit: WEIGHT_UNIT.KG,
+        ageConfirmedAt: null,
         articles: [],
       };
       jest.spyOn(repository, 'findOne').mockResolvedValue(expectedOutput);
@@ -66,6 +73,11 @@ describe('UserRepository', () => {
         email: 'default-user@random.com',
         createdAt: currentDate,
         updatedAt: currentDate,
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
+        weightKg: null,
+        weightUnit: WEIGHT_UNIT.KG,
+        ageConfirmedAt: null,
         articles: [],
       };
       jest.spyOn(repository, 'findOne').mockResolvedValue(expectedOutput);

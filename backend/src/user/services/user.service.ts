@@ -6,6 +6,7 @@ import { Action } from '../../shared/acl/action.constant';
 import { Actor } from '../../shared/acl/actor.constant';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { toBodyWeightKg } from '../../shared/units/weight';
 import { CreateUserInput } from '../dtos/user-create-input.dto';
 import { UserOutput } from '../dtos/user-output.dto';
 import { UpdateUserInput } from '../dtos/user-update-input.dto';
@@ -161,16 +162,29 @@ export class UserService {
       throw new UnauthorizedException();
     }
 
-    // Hash the password if it exists in the input payload.
-    if (input.password) {
-      input.password = await hash(input.password, 10);
+    // Copy only the fields a user may change, one by one. Never spread
+    // `input`: ValidationPipe doesn't strip unknown keys, so a spread would
+    // let a client set `roles`, `email` or `isAccountDisabled`.
+    const updatedUser: User = { ...user };
+
+    if (input.name !== undefined) updatedUser.name = input.name;
+    if (input.timezone !== undefined) updatedUser.timezone = input.timezone;
+    if (input.locale !== undefined) updatedUser.locale = input.locale;
+    if (input.weightUnit !== undefined) {
+      updatedUser.weightUnit = input.weightUnit;
     }
 
-    // merges the input (2nd line) to the found user (1st line)
-    const updatedUser: User = {
-      ...user,
-      ...input,
-    };
+    if (input.password) {
+      updatedUser.password = await hash(input.password, 10);
+    }
+
+    // `weight` is in the unit sent alongside it, else the saved unit.
+    if (input.weight !== undefined) {
+      updatedUser.weightKg =
+        input.weight === null
+          ? null
+          : toBodyWeightKg(input.weight, input.weightUnit ?? user.weightUnit);
+    }
 
     this.logger.log(ctx, `calling ${UserRepository.name}.save`);
     await this.repository.save(updatedUser);

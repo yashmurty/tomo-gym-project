@@ -1,10 +1,12 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
 
 import { ROLE } from '../../auth/constants/role.constant';
+import { LOCALE } from '../../shared/constants/locale.constant';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { UpdateUserInput } from '../dtos/user-update-input.dto';
 import { User } from '../entities/user.entity';
 import { UserRepository } from '../repositories/user.repository';
@@ -76,6 +78,8 @@ describe('UserService', () => {
         roles: [ROLE.USER],
         isAccountDisabled: false,
         email: 'randomUser@random.com',
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
       };
 
       await service.createUser(ctx, userInput);
@@ -89,6 +93,8 @@ describe('UserService', () => {
         roles: [ROLE.USER],
         isAccountDisabled: false,
         email: 'randomUser@random.com',
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
       };
 
       await service.createUser(ctx, userInput);
@@ -99,6 +105,8 @@ describe('UserService', () => {
         roles: [ROLE.USER],
         isAccountDisabled: false,
         email: 'randomUser@random.com',
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
       });
     });
 
@@ -114,6 +122,8 @@ describe('UserService', () => {
         roles: [ROLE.USER],
         isAccountDisabled: false,
         email: 'randomUser@random.com',
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
       };
 
       const result = await service.createUser(ctx, userInput);
@@ -124,6 +134,8 @@ describe('UserService', () => {
         roles: [ROLE.USER],
         isAccountDisabled: false,
         email: 'randomUser@random.com',
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
       });
       expect(result).not.toHaveProperty('password');
     });
@@ -174,6 +186,11 @@ describe('UserService', () => {
         email: 'self@example.com',
         createdAt: new Date('2026-01-01'),
         updatedAt: new Date('2026-01-01'),
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
+        weightKg: null,
+        weightUnit: WEIGHT_UNIT.KG,
+        ageConfirmedAt: null,
         articles: [],
       };
       mockedRepository.getById.mockResolvedValue(fullUser);
@@ -338,6 +355,11 @@ describe('UserService', () => {
         email: 'randomUser@random.com',
         createdAt: currentDate,
         updatedAt: currentDate,
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
+        weightKg: null,
+        weightUnit: WEIGHT_UNIT.KG,
+        ageConfirmedAt: null,
         articles: [],
       };
 
@@ -345,13 +367,18 @@ describe('UserService', () => {
 
       const expected: User = {
         id: 1,
-        name: input.name,
-        password: input.password,
+        name: 'Test',
+        password: 'updated-password',
         roles: [ROLE.USER],
         isAccountDisabled: false,
         email: 'randomUser@random.com',
         createdAt: currentDate,
         updatedAt: currentDate,
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
+        weightKg: null,
+        weightUnit: WEIGHT_UNIT.KG,
+        ageConfirmedAt: null,
         articles: [],
       };
 
@@ -377,6 +404,112 @@ describe('UserService', () => {
       } catch (error: any) {
         expect(error).toBeInstanceOf(NotFoundException);
       }
+    });
+
+    it('ignores fields outside UpdateUserInput, such as roles', async () => {
+      const foundUser: User = {
+        id: 1,
+        name: 'Default User',
+        password: 'random-password',
+        roles: [ROLE.USER],
+        isAccountDisabled: false,
+        email: 'randomUser@random.com',
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
+        weightKg: null,
+        weightUnit: WEIGHT_UNIT.KG,
+        ageConfirmedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        articles: [],
+      };
+      mockedRepository.getById.mockResolvedValue(foundUser);
+      mockedRepository.save.mockClear();
+
+      const smuggled = {
+        name: 'New name',
+        roles: [ROLE.ADMIN],
+        isAccountDisabled: true,
+        email: 'hijacked@example.com',
+      } as unknown as UpdateUserInput;
+
+      await service.updateUser(ctx, 1, smuggled);
+
+      const saved = mockedRepository.save.mock.calls[0][0] as User;
+      expect(saved.name).toBe('New name');
+      expect(saved.roles).toEqual([ROLE.USER]);
+      expect(saved.isAccountDisabled).toBe(false);
+      expect(saved.email).toBe('randomUser@random.com');
+    });
+
+    describe('weight', () => {
+      beforeEach(() => {
+        mockedRepository.save.mockClear();
+      });
+
+      const savedUser = (weightUnit: WEIGHT_UNIT): User => ({
+        id: 1,
+        name: 'Default User',
+        password: 'random-password',
+        roles: [ROLE.USER],
+        isAccountDisabled: false,
+        email: 'randomUser@random.com',
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.EN,
+        weightKg: 70,
+        weightUnit,
+        ageConfirmedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        articles: [],
+      });
+
+      const savedWeightKg = () =>
+        (mockedRepository.save.mock.calls[0][0] as User).weightKg;
+
+      it('converts using the unit sent in the same request', async () => {
+        mockedRepository.getById.mockResolvedValue(savedUser(WEIGHT_UNIT.KG));
+
+        await service.updateUser(ctx, 1, {
+          weight: 160,
+          weightUnit: WEIGHT_UNIT.LB,
+        });
+
+        expect(savedWeightKg()).toBe(72.57);
+      });
+
+      it("falls back to the user's saved unit when none is sent", async () => {
+        mockedRepository.getById.mockResolvedValue(savedUser(WEIGHT_UNIT.LB));
+
+        await service.updateUser(ctx, 1, { weight: 160 });
+
+        expect(savedWeightKg()).toBe(72.57);
+      });
+
+      it('clears the weight when null is sent', async () => {
+        mockedRepository.getById.mockResolvedValue(savedUser(WEIGHT_UNIT.KG));
+
+        await service.updateUser(ctx, 1, { weight: null });
+
+        expect(savedWeightKg()).toBeNull();
+      });
+
+      it('leaves the weight alone when it is not sent', async () => {
+        mockedRepository.getById.mockResolvedValue(savedUser(WEIGHT_UNIT.KG));
+
+        await service.updateUser(ctx, 1, { name: 'New name' });
+
+        expect(savedWeightKg()).toBe(70);
+      });
+
+      it('rejects an implausible weight without saving', async () => {
+        mockedRepository.getById.mockResolvedValue(savedUser(WEIGHT_UNIT.KG));
+
+        await expect(
+          service.updateUser(ctx, 1, { weight: 900 }),
+        ).rejects.toThrow(BadRequestException);
+        expect(mockedRepository.save).not.toHaveBeenCalled();
+      });
     });
   });
 });

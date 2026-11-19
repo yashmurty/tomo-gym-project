@@ -4,6 +4,7 @@ import request from 'supertest';
 
 import { AppModule } from '../../src/app.module';
 import { AuthTokenOutput } from '../../src/auth/dtos/auth-token-output.dto';
+import { VALIDATION_PIPE_OPTIONS } from '../../src/shared/constants';
 import { UserOutput } from '../../src/user/dtos/user-output.dto';
 import {
   closeDBAfterTest,
@@ -26,7 +27,7 @@ describe('UserController (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe());
+    app.useGlobalPipes(new ValidationPipe(VALIDATION_PIPE_OPTIONS));
     await app.init();
 
     ({ adminUser, authTokenForAdmin } = await seedAdminUser(app));
@@ -144,6 +145,9 @@ describe('UserController (e2e)', () => {
         name: 'Regular User',
         email: 'regular-user@example.com',
         password: 'regular-user-password',
+        timezone: 'Asia/Tokyo',
+        locale: 'en',
+        ageConfirmed: true,
       };
 
       const registerResponse = await request(app.getHttpServer())
@@ -181,6 +185,106 @@ describe('UserController (e2e)', () => {
         .get('/users')
         .set('Authorization', 'Bearer ' + regularUserToken)
         .expect(HttpStatus.UNAUTHORIZED);
+    });
+
+    it("cannot update another user's profile", async () => {
+      return request(app.getHttpServer())
+        .patch(`/users/${adminUser.id}`)
+        .set('Authorization', 'Bearer ' + regularUserToken)
+        .send({ timezone: 'Asia/Tokyo' })
+        .expect(HttpStatus.UNAUTHORIZED);
+    });
+
+    describe('profile updates', () => {
+      const patchSelf = (body: object) =>
+        request(app.getHttpServer())
+          .patch(`/users/${regularUserId}`)
+          .set('Authorization', 'Bearer ' + regularUserToken)
+          .send(body);
+
+      it('updates timezone and locale', async () => {
+        await patchSelf({ timezone: 'America/New_York', locale: 'ja' })
+          .expect(HttpStatus.OK)
+          .expect((res) => {
+            expect(res.body.data.timezone).toBe('America/New_York');
+            expect(res.body.data.locale).toBe('ja');
+          });
+      });
+
+      it('stores a timezone exactly as sent, without canonicalising it', async () => {
+        await patchSelf({ timezone: 'Asia/Kolkata' })
+          .expect(HttpStatus.OK)
+          .expect((res) => {
+            expect(res.body.data.timezone).toBe('Asia/Kolkata');
+          });
+      });
+
+      it('rejects an invalid timezone', async () => {
+        await patchSelf({ timezone: 'Tokyo' }).expect(HttpStatus.BAD_REQUEST);
+      });
+
+      it('converts a weight sent in lb and returns it in kg', async () => {
+        await patchSelf({ weight: 160, weightUnit: 'lb' })
+          .expect(HttpStatus.OK)
+          .expect((res) => {
+            expect(res.body.data.weightKg).toBe(72.57);
+            expect(res.body.data.weightUnit).toBe('lb');
+          });
+
+        // Read back from the DB: numeric column comes back as a number.
+        await request(app.getHttpServer())
+          .get('/users/me')
+          .set('Authorization', 'Bearer ' + regularUserToken)
+          .expect((res) => {
+            expect(res.body.data.weightKg).toBe(72.57);
+          });
+      });
+
+      it('rejects an implausible weight', async () => {
+        await patchSelf({ weight: 5, weightUnit: 'kg' }).expect(
+          HttpStatus.BAD_REQUEST,
+        );
+      });
+
+      it('ignores fields a user may not change, such as roles', async () => {
+        await patchSelf({
+          name: 'Still a user',
+          roles: ['ADMIN'],
+          isAccountDisabled: true,
+          email: 'hijacked@example.com',
+        })
+          .expect(HttpStatus.OK)
+          .expect((res) => {
+            expect(res.body.data.roles).toEqual(['USER']);
+            expect(res.body.data.isAccountDisabled).toBe(false);
+            expect(res.body.data.email).toBe('regular-user@example.com');
+            expect(res.body.data.name).toBe('Still a user');
+          });
+
+        // Log in again: a fresh token carries roles from the DB, so this
+        // proves the escalation wasn't stored, not just absent from the
+        // old token.
+        const relogin = await request(app.getHttpServer())
+          .post('/auth/login')
+          .send({
+            email: 'regular-user@example.com',
+            password: 'regular-user-password',
+          })
+          .expect(HttpStatus.OK);
+        expect(relogin.body.data.accessToken).toBeDefined();
+        await request(app.getHttpServer())
+          .get('/users')
+          .set('Authorization', 'Bearer ' + relogin.body.data.accessToken)
+          .expect(HttpStatus.UNAUTHORIZED);
+      });
+
+      it('clears the weight with null', async () => {
+        await patchSelf({ weight: null })
+          .expect(HttpStatus.OK)
+          .expect((res) => {
+            expect(res.body.data.weightKg).toBeNull();
+          });
+      });
     });
   });
 

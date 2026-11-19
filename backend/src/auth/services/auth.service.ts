@@ -5,6 +5,7 @@ import { plainToClass } from 'class-transformer';
 
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { toBodyWeightKg, WEIGHT_UNIT } from '../../shared/units/weight';
 import { UserOutput } from '../../user/dtos/user-output.dto';
 import { UserService } from '../../user/services/user.service';
 import { ROLE } from '../constants/role.constant';
@@ -60,11 +61,26 @@ export class AuthService {
   ): Promise<RegisterOutput> {
     this.logger.log(ctx, `${this.register.name} was called`);
 
-    // TODO : Setting default role as USER here. Will add option to change this later via ADMIN users.
-    input.roles = [ROLE.USER];
-    input.isAccountDisabled = false;
+    const weightUnit = input.weightUnit ?? WEIGHT_UNIT.KG;
 
-    const registeredUser = await this.userService.createUser(ctx, input);
+    // Built field by field (not by spreading `input`) so a client can't set
+    // anything signup doesn't allow, e.g. roles or isAccountDisabled.
+    const registeredUser = await this.userService.createUser(ctx, {
+      name: input.name,
+      email: input.email,
+      password: input.password,
+      roles: [ROLE.USER],
+      isAccountDisabled: false,
+      timezone: input.timezone,
+      locale: input.locale,
+      weightUnit,
+      weightKg:
+        input.weight === undefined
+          ? null
+          : toBodyWeightKg(input.weight, weightUnit),
+      // RegisterInput validation guarantees the box was ticked.
+      ageConfirmedAt: new Date(),
+    });
 
     return plainToClass(RegisterOutput, registeredUser, {
       excludeExtraneousValues: true,

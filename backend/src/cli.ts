@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from './app.module';
 import { ROLE } from './auth/constants/role.constant';
+import { LOCALE } from './shared/constants/locale.constant';
 import { RequestContext } from './shared/request-context/request-context.dto';
 import { CreateUserInput } from './user/dtos/user-create-input.dto';
 import { UserService } from './user/services/user.service';
@@ -23,6 +24,8 @@ async function bootstrap() {
     roles: [ROLE.ADMIN],
     isAccountDisabled: false,
     email: 'default-admin@example.com',
+    timezone: 'UTC',
+    locale: LOCALE.EN,
   };
 
   const ctx = new RequestContext();

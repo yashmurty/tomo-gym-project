@@ -5,6 +5,7 @@ import { createConnection, getConnection } from 'typeorm';
 import { ROLE } from '../src/auth/constants/role.constant';
 import { LoginInput } from '../src/auth/dtos/auth-login-input.dto';
 import { AuthTokenOutput } from '../src/auth/dtos/auth-token-output.dto';
+import { LOCALE } from '../src/shared/constants/locale.constant';
 import { RequestContext } from '../src/shared/request-context/request-context.dto';
 import { CreateUserInput } from '../src/user/dtos/user-create-input.dto';
 import { UserOutput } from '../src/user/dtos/user-output.dto';
@@ -63,6 +64,8 @@ export const seedAdminUser = async (
     roles: [ROLE.ADMIN],
     isAccountDisabled: false,
     email: 'default-admin@example.com',
+    timezone: 'UTC',
+    locale: LOCALE.EN,
   };
 
   const ctx = new RequestContext();

@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { ROLE } from '../../auth/constants/role.constant';
+import { LOCALE } from '../../shared/constants/locale.constant';
 import { PaginationParamsDto } from '../../shared/dtos/pagination-params.dto';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { UserOutput } from '../dtos/user-output.dto';
 import { UpdateUserInput } from '../dtos/user-update-input.dto';
 import { UserService } from '../services/user.service';
@@ -58,6 +60,10 @@ describe('UserController', () => {
     roles: [ROLE.USER],
     isAccountDisabled: false,
     email: 'e2etester@random.com',
+    timezone: 'Asia/Tokyo',
+    locale: LOCALE.EN,
+    weightKg: null,
+    weightUnit: WEIGHT_UNIT.KG,
     createdAt: currentDate,
     updatedAt: currentDate,
   };

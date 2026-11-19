@@ -121,6 +121,13 @@ Copy `.env.template` to `.env`. Required vars that need generating, not just fil
 - Entities are registered with DI via `TypeOrmModule.forFeature([Entity])` inside each module's `*.module.ts`.
 - `synchronize: false` is set intentionally. Schema changes go through migrations.
 
+## Shared helpers (use these, don't re-implement)
+
+- `src/shared/time/timezone.ts`: `isValidTimezone()` and the `@IsIanaTimezone()` validator. Timezones are validated, never canonicalised (ICU's canonical form varies by Node version, e.g. `Asia/Kolkata` → `Asia/Calcutta`). Fixed offsets like `+09:00` are rejected because they ignore DST.
+- `src/shared/units/weight.ts`: `WEIGHT_UNIT`, `toKg()` (exact lb factor, 2 decimals) and `toBodyWeightKg()` (also range-checks 20–400 kg *after* conversion, throwing `BadRequestException`). Unit conversion is server code, never the LLM's (constitution rule 9).
+- `src/shared/typeorm/numeric.transformer.ts`: put `transformer: numericTransformer` on every `numeric` column, or the pg driver hands back strings.
+- `src/shared/constants/locale.constant.ts`: `LOCALE` (`en` | `ja`).
+
 ## Module wiring checklist
 
 When adding a new module (e.g. `exercise`, `entry`), touch these files in this order:
@@ -142,6 +149,7 @@ The [src/article/](src/article/) module is the canonical example for all of the 
 
 - **Don't add `@Roles(...)` or `RolesGuard`.** We deliberately moved away from these — see [docs/suggested-upstream-changes.md](docs/suggested-upstream-changes.md). Role logic belongs in the ACL service.
 - **Don't return private fields to other users** (constitution rule 16). Body metrics, email and the chat transcript are self-only. Workout data shown to friends uses its own DTO per visibility level (summary vs. detail). Never hide details by leaving fields out of a shared DTO.
+- **Don't spread inputs into entities in services.** Copy allowed fields one by one (see `AuthService.register`, `UserService.updateUser`). Over HTTP, `main.ts`'s `ValidationPipe` (`whitelist: true`) strips unknown keys. But services are also called without that pipe, by agent tools (constitution rule 10), the CLI and tests, and a spread there lets a caller set `roles`, `email` or `isAccountDisabled`.
 - **Don't let the agent choose `user_id` or touch another user's data** (constitution rule 10). Tool handlers take the actor from the request context and call the same service methods as REST.
 - **Don't introduce a different framework / ORM / database / LLM provider.** Constitution rules 1–4 are non-negotiable.
 - **Don't hardcode secrets.** Env vars only (constitution rule 18). That includes the Anthropic API key, which never reaches the client.

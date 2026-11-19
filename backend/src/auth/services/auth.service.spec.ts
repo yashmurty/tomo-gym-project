@@ -3,11 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 
+import { LOCALE } from '../../shared/constants/locale.constant';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { UserOutput } from '../../user/dtos/user-output.dto';
 import { UserService } from '../../user/services/user.service';
 import { ROLE } from '../constants/role.constant';
+import { RegisterInput } from '../dtos/auth-register-input.dto';
 import {
   AuthTokenOutput,
   UserAccessTokenClaims,
@@ -23,12 +26,13 @@ describe('AuthService', () => {
     roles: [ROLE.USER],
   };
 
-  const registerInput = {
+  const registerInput: RegisterInput = {
     name: 'Jhon doe',
     password: 'any password',
-    roles: [ROLE.USER],
-    isAccountDisabled: false,
     email: 'randomUser@random.com',
+    timezone: 'Asia/Tokyo',
+    locale: LOCALE.JA,
+    ageConfirmed: true,
   };
 
   const currentDate = new Date().toString();
@@ -36,6 +40,10 @@ describe('AuthService', () => {
   const userOutput: UserOutput = {
     name: 'John doe',
     isAccountDisabled: false,
+    timezone: 'Asia/Tokyo',
+    locale: LOCALE.JA,
+    weightKg: null,
+    weightUnit: WEIGHT_UNIT.KG,
     createdAt: currentDate,
     updatedAt: currentDate,
     ...accessTokenClaims,
@@ -135,15 +143,61 @@ describe('AuthService', () => {
   });
 
   describe('register', () => {
-    it('should register new user', async () => {
-      jest
-        .spyOn(mockedUserService, 'createUser')
-        .mockImplementation(() => userOutput);
+    beforeEach(() => {
+      mockedUserService.createUser.mockReset();
+      mockedUserService.createUser.mockImplementation(async () => userOutput);
+    });
 
+    it('creates a USER with the profile fields and records age confirmation', async () => {
       const result = await service.register(ctx, registerInput);
 
-      expect(mockedUserService.createUser).toBeCalledWith(ctx, registerInput);
+      expect(mockedUserService.createUser).toBeCalledWith(ctx, {
+        name: registerInput.name,
+        email: registerInput.email,
+        password: registerInput.password,
+        roles: [ROLE.USER],
+        isAccountDisabled: false,
+        timezone: 'Asia/Tokyo',
+        locale: LOCALE.JA,
+        weightUnit: WEIGHT_UNIT.KG,
+        weightKg: null,
+        ageConfirmedAt: expect.any(Date),
+      });
       expect(result).toEqual(userOutput);
+    });
+
+    it('converts an optional signup weight to kg in the chosen unit', async () => {
+      await service.register(ctx, {
+        ...registerInput,
+        weight: 160,
+        weightUnit: WEIGHT_UNIT.LB,
+      });
+
+      expect(mockedUserService.createUser).toBeCalledWith(
+        ctx,
+        expect.objectContaining({
+          weightKg: 72.57,
+          weightUnit: WEIGHT_UNIT.LB,
+        }),
+      );
+    });
+
+    it('ignores fields signup does not allow, such as roles', async () => {
+      const smuggled = {
+        ...registerInput,
+        roles: [ROLE.ADMIN],
+        isAccountDisabled: true,
+      } as unknown as RegisterInput;
+
+      await service.register(ctx, smuggled);
+
+      expect(mockedUserService.createUser).toBeCalledWith(
+        ctx,
+        expect.objectContaining({
+          roles: [ROLE.USER],
+          isAccountDisabled: false,
+        }),
+      );
     });
   });
 
