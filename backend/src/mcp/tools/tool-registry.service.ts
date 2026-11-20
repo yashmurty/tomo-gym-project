@@ -1,9 +1,26 @@
-import { HttpException, Injectable, ValidationPipe } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  Injectable,
+  ValidationPipe,
+} from '@nestjs/common';
 
 import { VALIDATION_PIPE_OPTIONS } from '../../shared/constants';
 import { AppLogger } from '../../shared/logger/logger.service';
+import {
+  DeleteEntryTool,
+  GetDayTool,
+  GetLastEntryTool,
+  MoveEntriesTool,
+  QueryHistoryTool,
+  SetDayNoteTool,
+  UpdateEntryTool,
+} from './entry.tools';
+import { AddExerciseAliasTool, CreateExerciseTool } from './exercise.tools';
 import { LogEntryTool } from './log-entry.tool';
 import { McpTool, ToolContext } from './mcp-tool';
+import { GetProfileTool, UpdateProfileTool } from './profile.tools';
+import { UndoLastTool } from './undo.tools';
 
 export type ToolOutcome =
   | { ok: true; result: unknown }
@@ -23,16 +40,46 @@ export class ToolRegistry {
 
   constructor(
     logEntry: LogEntryTool,
+    getDay: GetDayTool,
+    getLastEntry: GetLastEntryTool,
+    queryHistory: QueryHistoryTool,
+    updateEntry: UpdateEntryTool,
+    deleteEntry: DeleteEntryTool,
+    moveEntries: MoveEntriesTool,
+    setDayNote: SetDayNoteTool,
+    createExercise: CreateExerciseTool,
+    addExerciseAlias: AddExerciseAliasTool,
+    getProfile: GetProfileTool,
+    updateProfile: UpdateProfileTool,
+    undoLast: UndoLastTool,
     private readonly logger: AppLogger,
   ) {
     this.logger.setContext(ToolRegistry.name);
-    this.tools = new Map<string, McpTool>([
-      [logEntry.name, logEntry as McpTool],
-    ]);
+    const tools: McpTool<any>[] = [
+      logEntry,
+      getDay,
+      getLastEntry,
+      queryHistory,
+      updateEntry,
+      deleteEntry,
+      moveEntries,
+      setDayNote,
+      createExercise,
+      addExerciseAlias,
+      getProfile,
+      updateProfile,
+      undoLast,
+    ];
+    this.tools = new Map(tools.map((t) => [t.name, t as McpTool]));
+  }
+
+  // Every registered tool (for tests).
+  all(): McpTool[] {
+    return [...this.tools.values()];
   }
 
   list(): { name: string; description: string; inputSchema: object }[] {
-    return [...this.tools.values()].map((t) => ({
+    return this.all().map((t) => ({
       name: t.name,
       description: t.description,
       inputSchema: t.inputSchema,
@@ -51,10 +98,7 @@ export class ToolRegistry {
 
     let input: object;
     try {
-      input = await toolPipe.transform(args ?? {}, {
-        type: 'body',
-        metatype: tool.inputDto,
-      });
+      input = await this.validate(tool, args);
     } catch (err) {
       const error = describe(err);
       this.logger.warn(
@@ -75,6 +119,21 @@ export class ToolRegistry {
       });
       return { ok: false, error: 'Internal error' };
     }
+  }
+
+  private async validate(tool: McpTool, args: unknown): Promise<object> {
+    const value = args ?? {};
+    if (!tool.inputDto) {
+      // Tools without arguments still reject any, like unknown fields.
+      const keys = Object.keys(value as object);
+      if (keys.length) {
+        throw new BadRequestException(
+          keys.map((k) => `property ${k} should not exist`),
+        );
+      }
+      return {};
+    }
+    return toolPipe.transform(value, { type: 'body', metatype: tool.inputDto });
   }
 }
 

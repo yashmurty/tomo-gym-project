@@ -12,7 +12,8 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 2 | Accounts — User (IANA timezone, locale, body weight + display unit, age confirmation), email + password signup (email verification deferred to Step 6) | Done |
 | 3 | Workout domain — exercises + aliases (seeded EN/JP catalog), sessions, entries + entry_sets, computed day numbers, deterministic calorie calc, REST CRUD | Done |
 | 4 | Agent vertical slice over MCP — tomo MCP server (`/mcp`) + `POST /chat` agent loop as its MCP client → Claude → `log_entry` over HTTP → row in Postgres → streamed confirmation; personal access tokens for external MCP clients; tables for chat messages, agent action log (undo), idempotency, LLM usage | Done with a stubbed model; the real Anthropic client is pending an API key |
-| 5 | Full agent toolset — corrections, bulk date moves, "same as last time", alias learning, history Q&A, model routing, parsing eval set | Not started |
+| 5a | Full agent toolset (stub-testable) — corrections, bulk date moves, "same as last time", history Q&A, alias learning, profile, `undo_last`; undo for every agent write; parsing eval cases + runner | Done |
+| 5b | Real model — Anthropic client, first real eval run, system prompt / tool description tuning, model routing | Not started (needs an Anthropic API key) |
 | 6 | Signup gate — email verification (SES), per-user rate limit, token budget, usage reporting (must ship before open signup goes live; SES needs the domain) | Not started |
 | 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Not started |
 | 8 | Frontend screens — auth, chat logger with streaming + undo, history list/edit, profile | Not started |
@@ -197,6 +198,20 @@ The starting point is `claude-haiku-5-5` for routine parses and `claude-opus-5-5
 
 Seed it from the brief's real inputs (varied separators, name after numbers, "lg" typo, "same as last time", corrections), plus Japanese and mixed EN/JP equivalents (katakana exercise names, full-width digits and ×, "前回と同じ"). Grade on the structured rows written, not the confirmation text.
 
+### Split into 5a / 5b *(decided 2026-11-20)*
+
+Everything that can be built and tested without a real model is 5a. Running the eval, tuning prompts and tool descriptions, and choosing models by measurement need the real model, so they're 5b, which waits for an Anthropic API key.
+
+### 5a Done (2026-11-20)
+
+- **12 new tools** on `/mcp` (13 in total): `get_day`, `get_last_entry`, `query_history`, `update_entry`, `delete_entry`, `move_entries`, `set_day_note`, `create_exercise`, `add_exercise_alias`, `get_profile` (for external clients, which have no context block), `update_profile` (weight, unit, timezone, locale; never name or password), `undo_last`. Every tool's advertised schema is unit-tested against its DTO; weighted sets need `unit` in `log_entry` and `update_entry`.
+- **Undo for every agent write** (new `src/action-log/` module): entry create / update / delete / move, day notes, custom exercises, aliases and profile changes are all recorded with before/after snapshots in the writing service's own transaction. `UndoService` reverses a group newest-first in one transaction, and **only if the row still matches its recorded `after` snapshot**. Rows edited since (e.g. in the app) are skipped and reported, never overwritten. A created exercise that entries still use is kept and reported. Snapshot comparison ignores key order, because Postgres `jsonb` reorders keys (a bug the e2e tests caught).
+- **`undo_last` scope:** from chat, the user's previous turn (never the current one); from an external client, only that token's own earlier calls (`mcp:<tokenId>:<uuid>` group keys).
+- **`Clock`** (`src/shared/time/clock.ts`): services take "now" from an injectable clock, so tests and the eval pin the date.
+- **Parsing eval** (`backend/evals/parsing/`): 19 cases from the brief plus Japanese, full-width, pyramid, lb, multi-exercise, correction, duplicate and "writes nothing" cases. Graded as a multiset of rows per day (weights to 0.01 kg). `npm run eval:parsing [-- --only=id,…]` boots the real app against `tomo_gym_eval` with the clock pinned to Thursday 2026-11-19 12:00 Tokyo, runs every turn through `POST /chat` → `/mcp`, prints pass/fail with diffs plus token use and list-price cost, and writes a JSON report (gitignored). Not run in CI (it costs money with a real model).
+- **Stub baseline: 7/19.** It passes the simple formats, lb and the two "writes nothing" cases; everything needing language understanding fails, as expected. 5b's real model must beat it.
+- Verified: build and lint clean; 216/216 unit tests; 118/118 e2e tests (16 new tool tests over a real port: each correction undone, a later app edit protected from undo, cross-client undo isolation, history filters, notes, exercise and alias undo, profile undo with the password untouched, chat `undo_last` scope).
+
 ## Step 6 — detail
 
 Required before production signup opens (constitution rules 5 and 17). **Email verification**: the same SES flow as denwa-alert (copy it from there), with unverified users unable to call the agent. **Spend limits**: a per-user request rate limit, a daily and monthly token budget checked before every Claude call, a friendly "limit reached" response, and a simple admin view of per-user spend from `llm_usage`.
@@ -264,6 +279,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-20** — **Step 5 split; 5a done.** 5a: the remaining 12 tools, undo for every kind of agent write (conflict-checked: undo never overwrites a later edit), an injectable clock, and the parsing eval (19 cases, runner, grader; stub baseline 7/19). 5b, which needs an API key, covers the Anthropic client, real eval runs, prompt tuning and model routing.
 - **2026-11-20** — **Step 4 done with a stubbed model.** MCP server, turn tokens and personal access tokens, validated tool layer, SSE chat loop as an MCP client, idempotent replay, undo. The real Anthropic client waits for an API key. Two changes found while building: the context block moved from a mid-conversation system message to the first block of the current user message, and tools must state `unit` for weighted sets rather than inheriting the user's display unit.
 - **2026-11-20** — **Step 3 done.** Exercise catalog (EN/JP aliases), sessions, entries + sets, calorie maths, computed day numbers and REST CRUD. Chat transcript, undo log, idempotency and LLM usage moved to Step 4, where they're first used. Found and fixed a node-postgres `DATE` → local-midnight `Date` conversion on raw queries that would have shifted days on servers east of UTC. Details under Step 3 — Done.
 - **2026-11-20** — **MCP from the beginning.** The agent's tools are served by tomo's own MCP server (`/mcp`) and our agent calls them over HTTP as an MCP client, the same surface external Claude apps use. External clients authenticate with personal access tokens in the MVP; OAuth 2.1 is post-MVP. Constitution rules 4, 5, 8, 10, 12, 13, 17 and 24 updated. Also settled in the design discussion: tool handlers get no DB access (services own short per-call transactions, enforced by a lint rule), and no transaction spans a turn. Undo uses the action log, because a turn waits seconds on Claude. Details under Step 4 — Architecture.

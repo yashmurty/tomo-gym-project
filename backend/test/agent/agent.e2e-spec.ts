@@ -188,7 +188,8 @@ describe('Agent + MCP (e2e)', () => {
       const contextText = (current.content as { text: string }[])[0].text;
       expect(contextText).toContain('timezone: Asia/Tokyo');
       expect(contextText).toContain(`today: ${todayIn(TZ)}`);
-      expect(first.tools.map((t) => t.name)).toEqual(['log_entry']);
+      expect(first.tools.map((t) => t.name)).toContain('log_entry');
+      expect(first.tools).toHaveLength(13);
 
       // Next turn: the earlier turn is in history, without its context block.
       const before = llm.requests.length;
@@ -232,11 +233,11 @@ describe('Agent + MCP (e2e)', () => {
       await undo(bobToken, turnId).expect(HttpStatus.NOT_FOUND);
 
       const first = await undo(aliceToken, turnId).expect(HttpStatus.CREATED);
-      expect(first.body.data).toEqual({ undone: 1 });
+      expect(first.body.data).toEqual({ undone: 1, skipped: [] });
       expect((await today(aliceToken)).entries).toHaveLength(0);
 
       const second = await undo(aliceToken, turnId).expect(HttpStatus.CREATED);
-      expect(second.body.data).toEqual({ undone: 0 });
+      expect(second.body.data).toEqual({ undone: 0, skipped: [] });
     });
 
     it('turns an injected tool field into a tool error, never a write', async () => {
@@ -331,11 +332,13 @@ describe('Agent + MCP (e2e)', () => {
     it('lists tools with strict schemas to an external client', async () => {
       const client = await mcpClient(pat);
       const { tools } = await client.listTools();
-      expect(tools.map((t) => t.name)).toEqual(['log_entry']);
-      expect(tools[0].inputSchema).toMatchObject({
-        type: 'object',
-        additionalProperties: false,
-      });
+      expect(tools).toHaveLength(13);
+      for (const tool of tools) {
+        expect(tool.inputSchema).toMatchObject({
+          type: 'object',
+          additionalProperties: false,
+        });
+      }
       await client.close();
     });
 

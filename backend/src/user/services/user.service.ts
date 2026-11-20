@@ -2,6 +2,8 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { compare, hash } from 'bcrypt';
 import { plainToClass } from 'class-transformer';
 
+import { ActionOrigin, recordAction } from '../../action-log/action-log';
+import { snapshotProfile } from '../../action-log/snapshots';
 import { Action } from '../../shared/acl/action.constant';
 import { Actor } from '../../shared/acl/actor.constant';
 import { AppLogger } from '../../shared/logger/logger.service';
@@ -147,6 +149,7 @@ export class UserService {
     ctx: RequestContext,
     userId: number,
     input: UpdateUserInput,
+    origin?: ActionOrigin,
   ): Promise<UserOutput> {
     this.logger.log(ctx, `${this.updateUser.name} was called`);
 
@@ -187,7 +190,23 @@ export class UserService {
     }
 
     this.logger.log(ctx, `calling ${UserRepository.name}.save`);
-    await this.repository.save(updatedUser);
+    if (origin?.actionGroup) {
+      // Agent / MCP change: save and record it for undo in one transaction.
+      await this.repository.manager.transaction(async (manager) => {
+        const before = await snapshotProfile(manager, userId);
+        await manager.save(User, updatedUser);
+        await recordAction(manager, {
+          userId,
+          origin,
+          entityType: 'user',
+          entityId: userId,
+          before,
+          after: await snapshotProfile(manager, userId),
+        });
+      });
+    } else {
+      await this.repository.save(updatedUser);
+    }
 
     return plainToClass(UserOutput, updatedUser, {
       excludeExtraneousValues: true,

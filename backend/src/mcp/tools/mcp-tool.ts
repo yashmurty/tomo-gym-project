@@ -1,5 +1,6 @@
 import { Type } from '@nestjs/common';
 
+import { UndoScope } from '../../action-log/services/undo.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
 import { EntryOrigin } from '../../workout/services/workout.service';
 
@@ -9,6 +10,9 @@ import { EntryOrigin } from '../../workout/services/workout.service';
 export interface ToolContext {
   readonly ctx: RequestContext;
   readonly origin: Readonly<EntryOrigin>;
+  // Which earlier changes undo_last may reverse: the caller's previous chat
+  // turns, or earlier calls made with the same access token.
+  readonly undoScope: Readonly<UndoScope>;
 }
 
 export interface JsonSchemaObject {
@@ -22,7 +26,8 @@ export interface McpTool<Input extends object = object> {
   readonly name: string;
   readonly description: string;
   // The DTO class the input is validated against (same rules as REST).
-  readonly inputDto: Type<Input>;
+  // Omitted for tools that take no arguments.
+  readonly inputDto?: Type<Input>;
   // The schema advertised to clients. Must list exactly the DTO's fields;
   // a unit test enforces it.
   readonly inputSchema: JsonSchemaObject;

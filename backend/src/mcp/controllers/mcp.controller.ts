@@ -87,7 +87,11 @@ export class McpController {
       const outcome = await this.registry.call(
         request.params.name,
         request.params.arguments,
-        { ctx: caller.ctx, origin: caller.originForCall() },
+        {
+          ctx: caller.ctx,
+          origin: caller.originForCall(),
+          undoScope: caller.undoScope,
+        },
       );
       if (!outcome.ok) {
         return {

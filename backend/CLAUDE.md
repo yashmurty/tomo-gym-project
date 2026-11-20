@@ -54,6 +54,7 @@ if (!isAllowed) {
 - [src/user/services/user-acl.service.ts](src/user/services/user-acl.service.ts) — `ADMIN: Manage`, `USER: Read/Update` (self only, via the `isUserItself` rule). There are no cross-user reads, because user records carry email (constitution rule 16). USER has no `List`, so `GET /users` is admin-only.
 - [src/article/services/article-acl.service.ts](src/article/services/article-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List/Read`, `USER: Update/Delete` (author only).
 - [src/exercise/services/exercise-acl.service.ts](src/exercise/services/exercise-acl.service.ts) — `ADMIN: Manage`, `USER: List/Create`, `USER: Read` (shared catalog or own custom exercise).
+- [src/action-log/services/action-log-acl.service.ts](src/action-log/services/action-log-acl.service.ts) — `ADMIN: Manage`, `USER: Update` (undo) on own logged actions only.
 - [src/access-token/services/access-token-acl.service.ts](src/access-token/services/access-token-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List`, `USER: Delete` (owner only).
 - [src/workout/services/workout-acl.service.ts](src/workout/services/workout-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List` (own days), `USER: Read/Update/Delete` (owner only, on entries and sessions). Friends' access (Step 12) gets its own rule plus the summary DTO.
 
@@ -134,6 +135,7 @@ Copy `.env.template` to `.env`. Required vars that need generating, not just fil
 - `src/shared/constants/locale.constant.ts`: `LOCALE` (`en` | `ja`).
 - `src/shared/time/calendar-date.ts`: `CalendarDate` ('YYYY-MM-DD' string), `todayIn(tz)`, `addDays()` (DST-proof), `resolveWorkoutDate()` (`today` / `yesterday` / date, rejecting future and impossible dates). Workout days are calendar dates, never timestamps.
 - `src/shared/typeorm/pg-date-parser.ts`: makes node-postgres return `DATE` as the raw string. Without it, raw queries get a JS `Date` at local midnight, which is the previous day in UTC on servers east of UTC. It's imported for its side effect by `shared.module.ts`, `ormconfig.ts` and `test/test-utils.ts`; anything else that opens a connection must import it too.
+- `src/shared/time/clock.ts`: `Clock.now()`. Take "now" from the injected clock, never `new Date()`, in anything date-sensitive; tests and the eval override it.
 - `src/exercise/utils/normalize-exercise-name.ts`: the alias key. The seed migration has a frozen copy, so changing it needs a re-normalising migration.
 
 ## Agent, MCP and tools (Step 4)
@@ -147,7 +149,9 @@ Copy `.env.template` to `.env`. Required vars that need generating, not just fil
 
   The ESLint rule on `src/mcp/tools/**` fails the build if a tool imports `typeorm` or a repository.
 - **Server-side context only:** tools receive `ToolContext { ctx, origin }` (user, source, `rawInput`, `sourceMessageId`, `actionGroup`). Never accept any of these as tool arguments.
-- **Writes from tools must be undoable:** pass `origin` through to the service, which records `agent_actions` in its own transaction (see `WorkoutService.logEntry` / `undoActionGroup`).
+- **Writes from tools must be undoable:** pass `origin` (at least `actionGroup` + `tool`) to the service. In its own transaction the service takes a snapshot before, writes, takes a snapshot after, and calls `recordAction()` (`src/action-log/action-log.ts`; snapshot helpers in `snapshots.ts`). `UndoService` reverses a group only if each row still matches its `after` snapshot, so undo never overwrites a later edit. A new kind of write needs a snapshot function and a reversal case in `UndoService.reverse()`.
+- **Tools today:** `log_entry`, `get_day`, `get_last_entry`, `query_history`, `update_entry`, `delete_entry`, `move_entries`, `set_day_note`, `create_exercise`, `add_exercise_alias`, `get_profile`, `update_profile`, `undo_last`. Tools without arguments omit `inputDto`, and any argument sent to them is rejected.
+- **Parsing eval:** `npm run eval:parsing [-- --only=case-id,…]` (cases in `evals/parsing/cases.ts`, graded on rows written). Re-run it after any change to the system prompt, a tool description or the model (constitution rule 15). It costs money with a real model; it isn't in CI.
 - **Model provider:** `LLM_PROVIDER` (`stub` only for now; refused in production), `LLM_MODEL`, `LLM_MAX_TOKENS`. The stub (`src/agent/llm/stub-llm-client.ts`) is a test double, not the product parser.
 - **`MCP_INTERNAL_URL`:** where the agent reaches `/mcp` (default `http://localhost:$APP_PORT/api/v1/mcp`). E2E tests listen on a real port and override `McpEndpoint`.
 - **Per-request facts** (now, timezone, profile) go in the `<context>` block of the *current* user message only (`system-prompt.ts`). Keep `SYSTEM_PROMPT` byte-stable for caching.

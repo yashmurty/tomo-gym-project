@@ -11,6 +11,7 @@ import { Exercise } from '../../exercise/entities/exercise.entity';
 import { ExerciseService } from '../../exercise/services/exercise.service';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { Clock } from '../../shared/time/clock';
 import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { UserService } from '../../user/services/user.service';
 import { LogEntryInput } from '../dtos/entry-input.dto';
@@ -53,6 +54,7 @@ describe('WorkoutService.logEntry validation', () => {
     new WorkoutAclService(),
     dataSource as unknown as DataSource,
     logger as unknown as AppLogger,
+    new Clock(),
   );
   const ctx = new RequestContext();
   ctx.user = { id: 7, email: 'a@example.com', roles: [ROLE.USER] };

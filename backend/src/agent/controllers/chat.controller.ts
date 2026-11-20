@@ -17,11 +17,11 @@ import {
 } from '@nestjs/swagger';
 import { Response } from 'express';
 
+import { UndoResult } from '../../action-log/services/undo.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { BaseApiResponse } from '../../shared/dtos/base-api-response.dto';
 import { ReqContext } from '../../shared/request-context/req-context.decorator';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
-import { UndoResult } from '../../workout/services/workout.service';
 import { ChatEvent, ChatInput } from '../dtos/chat.dto';
 import { AgentService } from '../services/agent.service';
 

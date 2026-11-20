@@ -9,6 +9,7 @@ import { configModuleOptions } from './configs/module-options';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { AppLoggerModule } from './logger/logger.module';
+import { Clock } from './time/clock';
 
 @Module({
   imports: [
@@ -40,8 +41,9 @@ import { AppLoggerModule } from './logger/logger.module';
     }),
     AppLoggerModule,
   ],
-  exports: [AppLoggerModule, ConfigModule],
+  exports: [AppLoggerModule, ConfigModule, Clock],
   providers: [
+    Clock,
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
 
     {

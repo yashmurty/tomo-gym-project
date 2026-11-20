@@ -8,6 +8,10 @@ import { ConfigService } from '@nestjs/config';
 import { QueryFailedError } from 'typeorm';
 
 import {
+  UndoResult,
+  UndoService,
+} from '../../action-log/services/undo.service';
+import {
   CHAT_ROLE,
   ChatMessage,
   TURN_STATUS,
@@ -16,11 +20,8 @@ import { ChatMessageService } from '../../chat/services/chat-message.service';
 import { TurnTokenService } from '../../mcp/services/turn-token.service';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { Clock } from '../../shared/time/clock';
 import { UserService } from '../../user/services/user.service';
-import {
-  UndoResult,
-  WorkoutService,
-} from '../../workout/services/workout.service';
 import { ChatEvent, ChatInput } from '../dtos/chat.dto';
 import {
   LLM_CLIENT,
@@ -47,9 +48,10 @@ export class AgentService {
     private readonly turnTokens: TurnTokenService,
     private readonly chat: ChatMessageService,
     private readonly userService: UserService,
-    private readonly workoutService: WorkoutService,
+    private readonly undoService: UndoService,
     private readonly config: ConfigService,
     private readonly logger: AppLogger,
+    private readonly clock: Clock,
   ) {
     this.logger.setContext(AgentService.name);
   }
@@ -114,7 +116,7 @@ export class AgentService {
   async undoTurn(ctx: RequestContext, turnId: number): Promise<UndoResult> {
     const turn = await this.chat.findUserTurn(ctx.user!.id, turnId);
     if (!turn) throw new NotFoundException(`Message ${turnId} not found`);
-    return this.workoutService.undoActionGroup(ctx, `msg:${turn.id}`);
+    return this.undoService.undoGroup(ctx, `msg:${turn.id}`);
   }
 
   private async runLoop(
@@ -132,7 +134,7 @@ export class AgentService {
       {
         role: 'user',
         content: [
-          { type: 'text', text: contextBlock(user, new Date()) },
+          { type: 'text', text: contextBlock(user, this.clock.now()) },
           { type: 'text', text: turn.text ?? '' },
         ],
       },

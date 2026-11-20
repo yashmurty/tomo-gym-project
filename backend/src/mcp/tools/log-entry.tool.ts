@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { LIMITS } from '../../workout/constants/workout.constant';
 import { LogEntryInput } from '../../workout/dtos/entry-input.dto';
 import { WorkoutService } from '../../workout/services/workout.service';
 import { McpTool, ToolContext } from './mcp-tool';
+import { assertUnitForWeights, compactEntry } from './tool-helpers';
 
 const number = (description: string, extra: object = {}) => ({
   type: 'number',
@@ -71,14 +72,7 @@ export class LogEntryTool implements McpTool<LogEntryInput> {
   constructor(private readonly workoutService: WorkoutService) {}
 
   async run({ ctx, origin }: ToolContext, input: LogEntryInput) {
-    // The REST API falls back to the user's display unit, which is fine
-    // when a form shows it. For a model it would be a silent guess ("47"
-    // stored as 47 lb = 21.3 kg), so tools must say which unit they mean.
-    if (input.sets?.some((s) => s.weight !== undefined) && !input.unit) {
-      throw new BadRequestException(
-        "Give `unit` ('kg' or 'lb') when sets have weights.",
-      );
-    }
+    assertUnitForWeights(input);
 
     const entry = await this.workoutService.logEntry(ctx, input, {
       ...origin,
@@ -88,19 +82,6 @@ export class LogEntryTool implements McpTool<LogEntryInput> {
 
     // Echo the resolved date and day number so the model (and user) can see
     // exactly where the entry was filed (constitution rule 8).
-    return {
-      entryId: entry.id,
-      date: entry.date,
-      dayNumber,
-      exercise: entry.exercise.name,
-      exerciseJa: entry.exercise.nameJa,
-      sets: entry.sets.map((s) => ({ reps: s.reps, weightKg: s.weightKg })),
-      durationMin: entry.durationMin,
-      distanceKm: entry.distanceKm,
-      speedKmh: entry.speedKmh,
-      inclinePct: entry.inclinePct,
-      estKcal: entry.estKcal,
-      kcalIsRough: entry.kcalIsRough,
-    };
+    return { ...compactEntry(entry), dayNumber };
   }
 }

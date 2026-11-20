@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+import { ActionOrigin, recordAction } from '../../action-log/action-log';
 import { Action } from '../../shared/acl/action.constant';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
@@ -92,6 +93,63 @@ export class ExerciseService {
     );
   }
 
+  // Teaches the user's own name for an exercise ("fly" → Pec fly), so it
+  // resolves next time. A user alias may override a shared one; it can't
+  // silently repoint one of the user's existing aliases.
+  async addAlias(
+    ctx: RequestContext,
+    ref: ExerciseRef,
+    alias: string,
+    origin?: ActionOrigin,
+  ): Promise<{ alias: string; exercise: ExerciseOutput; created: boolean }> {
+    this.logger.log(ctx, `${this.addAlias.name} was called`);
+    const userId = ctx.user!.id;
+
+    if (!this.aclService.forActor(ctx.user!).canDoAction(Action.Create)) {
+      throw new UnauthorizedException();
+    }
+
+    const exercise = await this.resolve(ctx, ref);
+    const normalizedAlias = normalizeExerciseName(alias);
+    if (!normalizedAlias) throw new BadRequestException('alias is empty');
+
+    const current = await this.repository.findByAlias(userId, normalizedAlias);
+    if (current?.id === exercise.id) {
+      return { alias, exercise: toExerciseOutput(exercise), created: false };
+    }
+
+    const ownAlias = await this.dataSource.manager.findOneBy(ExerciseAlias, {
+      userId,
+      normalizedAlias,
+    });
+    if (ownAlias) {
+      throw new ConflictException(
+        `'${alias}' already means '${current?.name}' for you`,
+      );
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(
+        manager.create(ExerciseAlias, {
+          userId,
+          exerciseId: exercise.id,
+          alias,
+          normalizedAlias,
+        }),
+      );
+      await recordAction(manager, {
+        userId,
+        origin,
+        entityType: 'exercise_alias',
+        entityId: saved.id,
+        before: null,
+        after: { alias },
+      });
+    });
+
+    return { alias, exercise: toExerciseOutput(exercise), created: true };
+  }
+
   async getVisibleEntity(ctx: RequestContext, id: number): Promise<Exercise> {
     const exercise = await this.repository.findVisibleById(ctx.user!.id, id);
     if (!exercise) throw new NotFoundException(`Exercise ${id} not found`);
@@ -122,6 +180,7 @@ export class ExerciseService {
   async create(
     ctx: RequestContext,
     input: CreateExerciseInput,
+    origin?: ActionOrigin,
   ): Promise<ExerciseOutput> {
     this.logger.log(ctx, `${this.create.name} was called`);
     const userId = ctx.user!.id;
@@ -159,19 +218,36 @@ export class ExerciseService {
         }),
       );
 
+      await recordAction(manager, {
+        userId,
+        origin,
+        entityType: 'exercise',
+        entityId: exercise.id,
+        before: null,
+        after: { name: exercise.name },
+      });
+
       const uniqueKeys = new Map(
         names.map((n) => [normalizeExerciseName(n), n] as const),
       );
-      await manager.save(
-        [...uniqueKeys].map(([normalizedAlias, alias]) =>
+      for (const [normalizedAlias, alias] of uniqueKeys) {
+        const saved = await manager.save(
           manager.create(ExerciseAlias, {
             userId,
             exerciseId: exercise.id,
             alias,
             normalizedAlias,
           }),
-        ),
-      );
+        );
+        await recordAction(manager, {
+          userId,
+          origin,
+          entityType: 'exercise_alias',
+          entityId: saved.id,
+          before: null,
+          after: { alias },
+        });
+      }
       return exercise;
     });
 

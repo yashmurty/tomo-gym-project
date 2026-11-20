@@ -2,7 +2,7 @@
   "name": "tomo-gym-backend",
   "private": true,
   "version": "1.0.0",
-  "description": "tomo-gym backend — NestJS REST API and agent loop for the conversational workout logger.",
+  "description": "tomo-gym backend \u2014 NestJS REST API and agent loop for the conversational workout logger.",
   "license": "MIT",
   "contributors": [
     "Yash Murty <yashmurty@gmail.com> (https://github.com/yashmurty)"
@@ -17,8 +17,8 @@
     "start:prod": "node dist/src/main",
     "cli:dev": "ts-node -r tsconfig-paths/register src/cli.ts",
     "cli:prod": "node dist/src/cli.js",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
-    "lint:fix": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint": "eslint \"{src,apps,libs,test,evals}/**/*.ts\"",
+    "lint:fix": "eslint \"{src,apps,libs,test,evals}/**/*.ts\" --fix",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -32,7 +32,8 @@
     "doc:serve": "npx compodoc -p tsconfig.json -w -s -r 8001",
     "doc:generate": "npx compodoc -p tsconfig.json",
     "prepare": "husky install",
-    "pre-commit": "lint-staged"
+    "pre-commit": "lint-staged",
+    "eval:parsing": "ts-node -r tsconfig-paths/register evals/parsing/run-eval.ts"
   },
   "lint-staged": {
     "**/*.ts": [
@@ -118,6 +119,10 @@
       ".module.ts$"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>",
+      "<rootDir>/../evals"
+    ]
   }
 }

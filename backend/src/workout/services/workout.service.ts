@@ -1,15 +1,22 @@
 import {
   BadRequestException,
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { DataSource, EntityManager, IsNull } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
-import { MODALITY } from '../../exercise/constants/exercise.constant';
+import { ActionOrigin, recordAction } from '../../action-log/action-log';
+import { snapshotEntry, snapshotSession } from '../../action-log/snapshots';
+import {
+  MODALITY,
+  MUSCLE_GROUP,
+} from '../../exercise/constants/exercise.constant';
 import { Exercise } from '../../exercise/entities/exercise.entity';
-import { ExerciseService } from '../../exercise/services/exercise.service';
+import {
+  ExerciseRef,
+  ExerciseService,
+} from '../../exercise/services/exercise.service';
 import { Action } from '../../shared/acl/action.constant';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
@@ -18,6 +25,7 @@ import {
   isCalendarDate,
   resolveWorkoutDate,
 } from '../../shared/time/calendar-date';
+import { Clock } from '../../shared/time/clock';
 import { toKg, WEIGHT_UNIT } from '../../shared/units/weight';
 import { UserOutput } from '../../user/dtos/user-output.dto';
 import { UserService } from '../../user/services/user.service';
@@ -35,7 +43,6 @@ import {
   toDayDetail,
   toEntryOutput,
 } from '../dtos/workout-output.dto';
-import { AgentAction } from '../entities/agent-action.entity';
 import { Entry } from '../entities/entry.entity';
 import { EntrySet } from '../entities/entry-set.entity';
 import { EntryRepository } from '../repositories/entry.repository';
@@ -46,19 +53,21 @@ import { WorkoutAclService } from './workout-acl.service';
 // Server-side facts about where a write came from. Never part of any
 // client-facing input DTO (constitution rule 12): REST callers get the
 // default; the MCP layer (Step 4) passes chat / mcp origins.
-export interface EntryOrigin {
+// `actionGroup` (from ActionOrigin): when set (agent / MCP writes), the
+// change is recorded in agent_actions in the same transaction, so it can be
+// undone.
+export interface EntryOrigin extends ActionOrigin {
   source: ENTRY_SOURCE;
   rawInput?: string | null;
   sourceClient?: string | null;
   sourceMessageId?: number | null;
-  // When set (agent / MCP writes), the change is recorded in agent_actions
-  // under this group, in the same transaction, so it can be undone.
-  actionGroup?: string;
-  tool?: string;
 }
 
-export interface UndoResult {
-  undone: number;
+export interface HistoryFilter extends ExerciseRef {
+  muscleGroup?: MUSCLE_GROUP;
+  from?: string;
+  to?: string;
+  limit?: number;
 }
 
 interface SetKg {
@@ -77,6 +86,8 @@ interface EntryShape {
 }
 
 const DEFAULT_DAYS_PER_PAGE = 30;
+const DEFAULT_HISTORY_LIMIT = 30;
+const MAX_HISTORY_LIMIT = 100;
 
 @Injectable()
 export class WorkoutService {
@@ -88,6 +99,7 @@ export class WorkoutService {
     private readonly aclService: WorkoutAclService,
     private readonly dataSource: DataSource,
     private readonly logger: AppLogger,
+    private readonly clock: Clock,
   ) {
     this.logger.setContext(WorkoutService.name);
   }
@@ -101,7 +113,11 @@ export class WorkoutService {
     this.assertAllowed(ctx, Action.Create);
 
     const user = await this.userService.getSelfProfile(ctx);
-    const date = resolveWorkoutDate(input.date, user.timezone);
+    const date = resolveWorkoutDate(
+      input.date,
+      user.timezone,
+      this.clock.now(),
+    );
     const exercise = await this.exerciseService.resolve(ctx, input);
 
     const shape: EntryShape = {
@@ -140,55 +156,18 @@ export class WorkoutService {
       );
       await this.insertSets(manager, entry.id, shape.sets);
 
-      if (origin.actionGroup) {
-        await manager.insert(AgentAction, {
-          userId: user.id,
-          groupKey: origin.actionGroup,
-          tool: origin.tool ?? 'log_entry',
-          entityType: 'entry',
-          entityId: entry.id,
-          before: null,
-          after: { sessionId: session.id, exerciseId: exercise.id, date },
-        });
-      }
+      await recordAction(manager, {
+        userId: user.id,
+        origin,
+        entityType: 'entry',
+        entityId: entry.id,
+        before: null,
+        after: await snapshotEntry(manager, entry.id),
+      });
       return entry.id;
     });
 
     return this.getEntryOutput(entryId);
-  }
-
-  // Reverses every not-yet-undone change in an action group, newest first,
-  // in one transaction. Undoing twice is a no-op.
-  async undoActionGroup(
-    ctx: RequestContext,
-    groupKey: string,
-  ): Promise<UndoResult> {
-    this.logger.log(ctx, `${this.undoActionGroup.name} was called`);
-    const userId = ctx.user!.id;
-
-    return this.dataSource.transaction(async (manager) => {
-      const actions = await manager.find(AgentAction, {
-        where: { userId, groupKey, undoneAt: IsNull() },
-        order: { id: 'DESC' },
-      });
-
-      for (const action of actions) {
-        this.assertAllowed(ctx, Action.Update, action);
-
-        if (action.entityType === 'entry' && action.before === null) {
-          // The action created the entry: undo = soft delete it.
-          await manager.softDelete(Entry, { id: action.entityId, userId });
-        } else {
-          // Update / delete / move reversals arrive with those tools (Step 5).
-          throw new InternalServerErrorException(
-            `Don't know how to undo ${action.tool} on ${action.entityType}`,
-          );
-        }
-        await manager.update(AgentAction, action.id, { undoneAt: new Date() });
-      }
-
-      return { undone: actions.length };
-    });
   }
 
   // The day number for a date, or null if the day has no entries. Tools echo
@@ -210,6 +189,7 @@ export class WorkoutService {
     ctx: RequestContext,
     entryId: number,
     input: UpdateEntryInput,
+    origin?: ActionOrigin,
   ): Promise<EntryOutput> {
     this.logger.log(ctx, `${this.updateEntry.name} was called`);
 
@@ -238,9 +218,10 @@ export class WorkoutService {
     const targetDate =
       input.date === undefined
         ? undefined
-        : resolveWorkoutDate(input.date, user.timezone);
+        : resolveWorkoutDate(input.date, user.timezone, this.clock.now());
 
     await this.dataSource.transaction(async (manager) => {
+      const before = await snapshotEntry(manager, entry.id);
       let sessionId = entry.sessionId;
       if (targetDate !== undefined && targetDate !== entry.session!.date) {
         sessionId = (
@@ -267,26 +248,56 @@ export class WorkoutService {
         await manager.delete(EntrySet, { entryId: entry.id });
         await this.insertSets(manager, entry.id, newSets);
       }
+
+      await recordAction(manager, {
+        userId: user.id,
+        origin,
+        entityType: 'entry',
+        entityId: entry.id,
+        before,
+        after: await snapshotEntry(manager, entry.id),
+      });
     });
 
     return this.getEntryOutput(entry.id);
   }
 
   // Soft delete, so a later undo can restore it.
-  async deleteEntry(ctx: RequestContext, entryId: number): Promise<void> {
+  async deleteEntry(
+    ctx: RequestContext,
+    entryId: number,
+    origin?: ActionOrigin,
+  ): Promise<void> {
     this.logger.log(ctx, `${this.deleteEntry.name} was called`);
     const entry = await this.getOwnedEntry(ctx, entryId, Action.Delete);
-    await this.entryRepository.softDelete(entry.id);
+
+    await this.dataSource.transaction(async (manager) => {
+      const before = await snapshotEntry(manager, entry.id);
+      await manager.softDelete(Entry, { id: entry.id });
+      await recordAction(manager, {
+        userId: entry.userId,
+        origin,
+        entityType: 'entry',
+        entityId: entry.id,
+        before,
+        after: await snapshotEntry(manager, entry.id),
+      });
+    });
   }
 
   // "These three were actually Tuesday": all entries move, or none do.
   async moveEntries(
     ctx: RequestContext,
     input: MoveEntriesInput,
+    origin?: ActionOrigin,
   ): Promise<DayDetailOutput> {
     this.logger.log(ctx, `${this.moveEntries.name} was called`);
     const user = await this.userService.getSelfProfile(ctx);
-    const date = resolveWorkoutDate(input.date, user.timezone);
+    const date = resolveWorkoutDate(
+      input.date,
+      user.timezone,
+      this.clock.now(),
+    );
 
     const entries = await this.entryRepository.findWithDetails(input.entryIds);
     const found = new Set(entries.map((e) => e.id));
@@ -304,7 +315,18 @@ export class WorkoutService {
         user.id,
         date,
       );
-      await manager.update(Entry, input.entryIds, { sessionId: session.id });
+      for (const id of input.entryIds) {
+        const before = await snapshotEntry(manager, id);
+        await manager.update(Entry, id, { sessionId: session.id });
+        await recordAction(manager, {
+          userId: user.id,
+          origin,
+          entityType: 'entry',
+          entityId: id,
+          before,
+          after: await snapshotEntry(manager, id),
+        });
+      }
     });
 
     return this.getDayForUser(user.id, date);
@@ -315,7 +337,7 @@ export class WorkoutService {
     this.assertAllowed(ctx, Action.List);
 
     const user = await this.userService.getSelfProfile(ctx);
-    const date = resolveWorkoutDate(dateArg, user.timezone);
+    const date = resolveWorkoutDate(dateArg, user.timezone, this.clock.now());
     return this.getDayForUser(user.id, date);
   }
 
@@ -367,12 +389,13 @@ export class WorkoutService {
     ctx: RequestContext,
     dateArg: string,
     note: string | null,
+    origin?: ActionOrigin,
   ): Promise<DayDetailOutput> {
     this.logger.log(ctx, `${this.setDayNote.name} was called`);
     this.assertAllowed(ctx, Action.Create);
 
     const user = await this.userService.getSelfProfile(ctx);
-    const date = resolveWorkoutDate(dateArg, user.timezone);
+    const date = resolveWorkoutDate(dateArg, user.timezone, this.clock.now());
 
     await this.dataSource.transaction(async (manager) => {
       const session = await this.sessionRepository.findOrCreate(
@@ -381,10 +404,64 @@ export class WorkoutService {
         date,
       );
       this.assertAllowed(ctx, Action.Update, session);
+      const before = await snapshotSession(manager, session.id);
       await manager.update('sessions', session.id, { note });
+      await recordAction(manager, {
+        userId: user.id,
+        origin,
+        entityType: 'session',
+        entityId: session.id,
+        before,
+        after: await snapshotSession(manager, session.id),
+      });
     });
 
     return this.getDayForUser(user.id, date);
+  }
+
+  // Live entries matching the filter, newest day first. Feeds "what did I
+  // lift last Tuesday?" and "same as last time".
+  async queryHistory(
+    ctx: RequestContext,
+    filter: HistoryFilter,
+  ): Promise<EntryOutput[]> {
+    this.logger.log(ctx, `${this.queryHistory.name} was called`);
+    this.assertAllowed(ctx, Action.List);
+
+    const user = await this.userService.getSelfProfile(ctx);
+    const now = this.clock.now();
+    const from =
+      filter.from === undefined
+        ? undefined
+        : resolveWorkoutDate(filter.from, user.timezone, now);
+    const to =
+      filter.to === undefined
+        ? undefined
+        : resolveWorkoutDate(filter.to, user.timezone, now);
+
+    const byExercise =
+      filter.exercise !== undefined || filter.exerciseId !== undefined;
+    const exercise = byExercise
+      ? await this.exerciseService.resolve(ctx, filter)
+      : undefined;
+
+    const entries = await this.entryRepository.findHistory(user.id, {
+      exerciseId: exercise?.id,
+      muscleGroup: filter.muscleGroup,
+      from,
+      to,
+      limit: Math.min(filter.limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT),
+    });
+    return entries.map(toEntryOutput);
+  }
+
+  // The most recent live entry of an exercise, or null.
+  async getLastEntry(
+    ctx: RequestContext,
+    ref: ExerciseRef,
+  ): Promise<EntryOutput | null> {
+    const [last] = await this.queryHistory(ctx, { ...ref, limit: 1 });
+    return last ?? null;
   }
 
   // ---- helpers ----

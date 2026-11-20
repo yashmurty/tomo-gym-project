@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { Request } from 'express';
 
 import { AccessTokenService } from '../../access-token/services/access-token.service';
+import { UndoScope } from '../../action-log/services/undo.service';
 import { ChatMessageService } from '../../chat/services/chat-message.service';
 import { REQUEST_ID_TOKEN_HEADER } from '../../shared/constants';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
@@ -13,6 +14,8 @@ import { TurnTokenService } from './turn-token.service';
 
 // Who is calling /mcp and on whose behalf, resolved from the bearer token.
 export interface McpCaller {
+  // Which earlier changes undo_last may reverse for this caller.
+  undoScope: UndoScope;
   ctx: RequestContext;
   // Fixed per request for turn tokens (the chat message); per tool call for
   // personal access tokens (see originForCall).
@@ -54,7 +57,12 @@ export class McpAuthService {
         sourceMessageId: message.id,
         actionGroup: `msg:${message.id}`,
       };
-      return { ctx, originForCall: () => origin };
+      return {
+        ctx,
+        originForCall: () => origin,
+        // undo_last from chat: the user's previous turns, never this one.
+        undoScope: { prefix: 'msg:', exclude: origin.actionGroup },
+      };
     }
 
     const pat = await this.accessTokens.verify(token);
@@ -66,8 +74,10 @@ export class McpAuthService {
         originForCall: () => ({
           source: ENTRY_SOURCE.MCP,
           sourceClient: pat.name,
-          actionGroup: `mcp:${randomUUID()}`,
+          actionGroup: `mcp:${pat.tokenId}:${randomUUID()}`,
         }),
+        // undo_last from an external client: its own earlier calls only.
+        undoScope: { prefix: `mcp:${pat.tokenId}:` },
       };
     }
 

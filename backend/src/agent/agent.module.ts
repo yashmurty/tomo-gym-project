@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { ActionLogModule } from '../action-log/action-log.module';
 import { JwtAuthStrategy } from '../auth/strategies/jwt-auth.strategy';
 import { ChatModule } from '../chat/chat.module';
 import { McpModule } from '../mcp/mcp.module';
 import { SharedModule } from '../shared/shared.module';
 import { UserModule } from '../user/user.module';
-import { WorkoutModule } from '../workout/workout.module';
 import { ChatController } from './controllers/chat.controller';
 import { LLM_CLIENT, LlmClient } from './llm/llm-client';
 import { StubLlmClient } from './llm/stub-llm-client';
@@ -29,7 +29,7 @@ function llmClientFactory(config: ConfigService): LlmClient {
 }
 
 @Module({
-  imports: [SharedModule, ChatModule, McpModule, UserModule, WorkoutModule],
+  imports: [SharedModule, ChatModule, McpModule, UserModule, ActionLogModule],
   providers: [
     AgentService,
     McpToolClient,
