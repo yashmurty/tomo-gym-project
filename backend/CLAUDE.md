@@ -54,6 +54,7 @@ if (!isAllowed) {
 - [src/user/services/user-acl.service.ts](src/user/services/user-acl.service.ts) — `ADMIN: Manage`, `USER: Read/Update` (self only, via the `isUserItself` rule). There are no cross-user reads, because user records carry email (constitution rule 16). USER has no `List`, so `GET /users` is admin-only.
 - [src/article/services/article-acl.service.ts](src/article/services/article-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List/Read`, `USER: Update/Delete` (author only).
 - [src/exercise/services/exercise-acl.service.ts](src/exercise/services/exercise-acl.service.ts) — `ADMIN: Manage`, `USER: List/Create`, `USER: Read` (shared catalog or own custom exercise).
+- [src/access-token/services/access-token-acl.service.ts](src/access-token/services/access-token-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List`, `USER: Delete` (owner only).
 - [src/workout/services/workout-acl.service.ts](src/workout/services/workout-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List` (own days), `USER: Read/Update/Delete` (owner only, on entries and sessions). Friends' access (Step 12) gets its own rule plus the summary DTO.
 
 ## Testing patterns
@@ -134,6 +135,22 @@ Copy `.env.template` to `.env`. Required vars that need generating, not just fil
 - `src/shared/time/calendar-date.ts`: `CalendarDate` ('YYYY-MM-DD' string), `todayIn(tz)`, `addDays()` (DST-proof), `resolveWorkoutDate()` (`today` / `yesterday` / date, rejecting future and impossible dates). Workout days are calendar dates, never timestamps.
 - `src/shared/typeorm/pg-date-parser.ts`: makes node-postgres return `DATE` as the raw string. Without it, raw queries get a JS `Date` at local midnight, which is the previous day in UTC on servers east of UTC. It's imported for its side effect by `shared.module.ts`, `ormconfig.ts` and `test/test-utils.ts`; anything else that opens a connection must import it too.
 - `src/exercise/utils/normalize-exercise-name.ts`: the alias key. The seed migration has a frozen copy, so changing it needs a re-normalising migration.
+
+## Agent, MCP and tools (Step 4)
+
+- **Request path:** `POST /chat` (`src/agent/`) → `AgentService` loop → `LlmClient` → each `tool_use` becomes a `tools/call` over HTTP to `/mcp` (`src/mcp/`) with a **turn token** → `ToolRegistry` validates → tool → service. External clients hit the same `/mcp` with a **personal access token**. `/mcp` refuses login tokens.
+- **Adding a tool:**
+  1. Write an input DTO with class-validator rules.
+  2. Write a class implementing `McpTool`: `name`, an agent-facing `description`, `inputDto`, an `inputSchema` with `additionalProperties: false`, and `run()` calling **services only**.
+  3. Register it in `ToolRegistry`'s constructor and `McpModule` providers.
+  4. Add it to the schema-parity unit test.
+
+  The ESLint rule on `src/mcp/tools/**` fails the build if a tool imports `typeorm` or a repository.
+- **Server-side context only:** tools receive `ToolContext { ctx, origin }` (user, source, `rawInput`, `sourceMessageId`, `actionGroup`). Never accept any of these as tool arguments.
+- **Writes from tools must be undoable:** pass `origin` through to the service, which records `agent_actions` in its own transaction (see `WorkoutService.logEntry` / `undoActionGroup`).
+- **Model provider:** `LLM_PROVIDER` (`stub` only for now; refused in production), `LLM_MODEL`, `LLM_MAX_TOKENS`. The stub (`src/agent/llm/stub-llm-client.ts`) is a test double, not the product parser.
+- **`MCP_INTERNAL_URL`:** where the agent reaches `/mcp` (default `http://localhost:$APP_PORT/api/v1/mcp`). E2E tests listen on a real port and override `McpEndpoint`.
+- **Per-request facts** (now, timezone, profile) go in the `<context>` block of the *current* user message only (`system-prompt.ts`). Keep `SYSTEM_PROMPT` byte-stable for caching.
 
 ## Module wiring checklist
 

@@ -17,7 +17,7 @@ Conversational workout logger. Users type workouts in plain text → a server-si
 ├── constitution.md   # project rules — authoritative
 ├── ROADMAP.md        # MVP plan, status, changelog
 ├── CLAUDE.md         # this file
-├── backend/          # NestJS REST API + agent loop — see backend/CLAUDE.md (Steps 1–3 done)
+├── backend/          # NestJS REST API + agent loop — see backend/CLAUDE.md (Steps 1–4 done; Step 4 with a stubbed model)
 ├── frontend/         # Vite + React + TS SPA (Step 7, not started)
 └── infra/            # Terraform for tomo-gym's own AWS resources (Step 9)
                       #   (shared VPC / EC2 host / RDS live in the octirion-platform repo)

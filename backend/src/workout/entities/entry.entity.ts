@@ -11,6 +11,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import { ChatMessage } from '../../chat/entities/chat-message.entity';
 import { Exercise } from '../../exercise/entities/exercise.entity';
 import { numericTransformer } from '../../shared/typeorm/numeric.transformer';
 import { User } from '../../user/entities/user.entity';
@@ -97,10 +98,13 @@ export class Entry {
   @Column({ type: 'varchar', length: 100, nullable: true })
   sourceClient: string | null;
 
-  // Chat message that produced the entry (FK added with the messages table
-  // in Step 4).
+  // Chat message (turn) that produced the entry.
   @Column({ type: 'int', nullable: true })
   sourceMessageId: number | null;
+
+  @ManyToOne(() => ChatMessage, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'sourceMessageId' })
+  sourceMessage?: ChatMessage | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

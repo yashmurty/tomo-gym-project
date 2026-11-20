@@ -1,10 +1,11 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, IsNull } from 'typeorm';
 
 import { MODALITY } from '../../exercise/constants/exercise.constant';
 import { Exercise } from '../../exercise/entities/exercise.entity';
@@ -34,6 +35,7 @@ import {
   toDayDetail,
   toEntryOutput,
 } from '../dtos/workout-output.dto';
+import { AgentAction } from '../entities/agent-action.entity';
 import { Entry } from '../entities/entry.entity';
 import { EntrySet } from '../entities/entry-set.entity';
 import { EntryRepository } from '../repositories/entry.repository';
@@ -49,6 +51,14 @@ export interface EntryOrigin {
   rawInput?: string | null;
   sourceClient?: string | null;
   sourceMessageId?: number | null;
+  // When set (agent / MCP writes), the change is recorded in agent_actions
+  // under this group, in the same transaction, so it can be undone.
+  actionGroup?: string;
+  tool?: string;
+}
+
+export interface UndoResult {
+  undone: number;
 }
 
 interface SetKg {
@@ -129,10 +139,69 @@ export class WorkoutService {
         }),
       );
       await this.insertSets(manager, entry.id, shape.sets);
+
+      if (origin.actionGroup) {
+        await manager.insert(AgentAction, {
+          userId: user.id,
+          groupKey: origin.actionGroup,
+          tool: origin.tool ?? 'log_entry',
+          entityType: 'entry',
+          entityId: entry.id,
+          before: null,
+          after: { sessionId: session.id, exerciseId: exercise.id, date },
+        });
+      }
       return entry.id;
     });
 
     return this.getEntryOutput(entryId);
+  }
+
+  // Reverses every not-yet-undone change in an action group, newest first,
+  // in one transaction. Undoing twice is a no-op.
+  async undoActionGroup(
+    ctx: RequestContext,
+    groupKey: string,
+  ): Promise<UndoResult> {
+    this.logger.log(ctx, `${this.undoActionGroup.name} was called`);
+    const userId = ctx.user!.id;
+
+    return this.dataSource.transaction(async (manager) => {
+      const actions = await manager.find(AgentAction, {
+        where: { userId, groupKey, undoneAt: IsNull() },
+        order: { id: 'DESC' },
+      });
+
+      for (const action of actions) {
+        this.assertAllowed(ctx, Action.Update, action);
+
+        if (action.entityType === 'entry' && action.before === null) {
+          // The action created the entry: undo = soft delete it.
+          await manager.softDelete(Entry, { id: action.entityId, userId });
+        } else {
+          // Update / delete / move reversals arrive with those tools (Step 5).
+          throw new InternalServerErrorException(
+            `Don't know how to undo ${action.tool} on ${action.entityType}`,
+          );
+        }
+        await manager.update(AgentAction, action.id, { undoneAt: new Date() });
+      }
+
+      return { undone: actions.length };
+    });
+  }
+
+  // The day number for a date, or null if the day has no entries. Tools echo
+  // it back so the user can spot a misfiled date (constitution rule 8).
+  async dayNumberFor(
+    ctx: RequestContext,
+    date: CalendarDate,
+  ): Promise<number | null> {
+    this.assertAllowed(ctx, Action.List);
+    const numbers = await this.sessionRepository.dayNumbers(ctx.user!.id, [
+      date,
+    ]);
+    return numbers.get(date) ?? null;
   }
 
   // `sets` replaces all sets; `date` moves the entry; cardio fields set to

@@ -31,4 +31,19 @@ export default (): any => ({
     ),
   },
   defaultAdminUserPassword: process.env.DEFAULT_ADMIN_USER_PASSWORD,
+  llm: {
+    // 'stub' (deterministic stand-in, no API key) until the Anthropic client
+    // is wired; production refuses to start on the stub.
+    provider: process.env.LLM_PROVIDER ?? 'stub',
+    model: process.env.LLM_MODEL ?? 'claude-haiku-5-5',
+    maxTokens: process.env.LLM_MAX_TOKENS
+      ? parseInt(process.env.LLM_MAX_TOKENS, 10)
+      : 1024,
+  },
+  mcp: {
+    // Where our agent loop reaches tomo's own MCP server (loopback).
+    internalUrl:
+      process.env.MCP_INTERNAL_URL ??
+      `http://localhost:${process.env.APP_PORT ?? 3000}/api/v1/mcp`,
+  },
 });

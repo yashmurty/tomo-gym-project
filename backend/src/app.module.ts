@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
 
+import { AccessTokenModule } from './access-token/access-token.module';
+import { AgentModule } from './agent/agent.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ArticleModule } from './article/article.module';
 import { AuthModule } from './auth/auth.module';
+import { ChatModule } from './chat/chat.module';
 import { ExerciseModule } from './exercise/exercise.module';
+import { McpModule } from './mcp/mcp.module';
 import { SharedModule } from './shared/shared.module';
 import { UserModule } from './user/user.module';
 import { WorkoutModule } from './workout/workout.module';
@@ -17,6 +21,10 @@ import { WorkoutModule } from './workout/workout.module';
     ArticleModule,
     ExerciseModule,
     WorkoutModule,
+    AccessTokenModule,
+    ChatModule,
+    McpModule,
+    AgentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

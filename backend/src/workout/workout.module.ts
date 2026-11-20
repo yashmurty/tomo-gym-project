@@ -7,6 +7,7 @@ import { SharedModule } from '../shared/shared.module';
 import { UserModule } from '../user/user.module';
 import { DayController } from './controllers/day.controller';
 import { EntryController } from './controllers/entry.controller';
+import { AgentAction } from './entities/agent-action.entity';
 import { Entry } from './entities/entry.entity';
 import { EntrySet } from './entities/entry-set.entity';
 import { WorkoutSession } from './entities/workout-session.entity';
@@ -18,7 +19,7 @@ import { WorkoutAclService } from './services/workout-acl.service';
 @Module({
   imports: [
     SharedModule,
-    TypeOrmModule.forFeature([WorkoutSession, Entry, EntrySet]),
+    TypeOrmModule.forFeature([WorkoutSession, Entry, EntrySet, AgentAction]),
     UserModule,
     ExerciseModule,
   ],
