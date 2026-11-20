@@ -118,6 +118,21 @@ external MCP client (PAT) ───────────────┘
 - **Local loopback:** the agent reaches `/mcp` via `MCP_INTERNAL_URL` (localhost in dev and in the prod container). External use needs public HTTPS, so it's blocked on the domain (Step 9). Until then it's tested locally with MCP Inspector / Claude Code.
 - **OAuth 2.1** for one-click claude.ai connectors is post-MVP (see Steps 13+).
 
+### Request flow (one chat message)
+
+Example: "2x10 @ 47kg lat pulldown".
+
+1. App → `POST /chat` with the login token + idempotency key.
+2. `/chat`: identify the user → rate limit / budget check (rule 17) → idempotency replay check (rule 11) → save the message → resolve today in the user's timezone (rule 8) → mint a turn token `{user, message}`.
+3. Call Claude: cached system prompt + tools, then a per-request block (now, timezone, profile), recent chat, the message.
+4. Claude returns `tool_use: log_entry {exercise, sets, unit, date: "today"}`.
+5. Agent → `POST /mcp tools/call` with the turn token. `/mcp` verifies the token, validates input, resolves "today" itself, loads `raw_input` from the message, and calls `EntryService.logEntry()`. One short transaction writes the session (find or create), entry, set rows, calories and the `agent_actions` undo record.
+6. Tool result (`entry_id`, date, day number) → Claude → one-line confirmation.
+7. Stream the text and an "entry created" event (SSE) to the app; save the reply and token usage.
+8. Undo is plain REST, no Claude: `POST /messages/:id/undo` reverses that message's `agent_actions`.
+
+Corrections ("actually 3 sets") and questions ("what did I lift Tuesday?") follow the same path with other tools (`update_entry`, `query_history`). Expected latency is ~1–2 s, almost all of it the two Claude calls.
+
 ### Locked design decisions
 
 - **Messages API + manual tool loop in NestJS**, not Managed Agents: the tools are our own services against our own Postgres, and the brief puts the loop server-side. Tools are reached over MCP (above).
