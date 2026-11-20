@@ -11,7 +11,7 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 1 | Backend scaffold (NestJS starter → `tomo-gym-backend`, ACL-based auth, CI) | Done |
 | 2 | Accounts — User (IANA timezone, locale, body weight + display unit, age confirmation), email + password signup (email verification deferred to Step 6) | Done |
 | 3 | Workout domain — schema migration (exercises + aliases, sessions, entries, chat transcript, agent action log, idempotency, LLM usage), computed day numbers, deterministic calorie calc, REST CRUD | Not started |
-| 4 | Agent vertical slice — `POST /chat` → Claude with tools → `log_entry` → row in Postgres → streamed confirmation | Not started |
+| 4 | Agent vertical slice over MCP — tomo MCP server (`/mcp`) + `POST /chat` agent loop as its MCP client → Claude → `log_entry` over HTTP → row in Postgres → streamed confirmation; personal access tokens for external MCP clients | Not started |
 | 5 | Full agent toolset — corrections, bulk date moves, "same as last time", alias learning, history Q&A, model routing, parsing eval set | Not started |
 | 6 | Signup gate — email verification (SES), per-user rate limit, token budget, usage reporting (must ship before open signup goes live; SES needs the domain) | Not started |
 | 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Not started |
@@ -95,18 +95,39 @@ Changes vs. the brief's model, each to be confirmed when implementation starts:
 
 ## Step 4 — detail
 
-The vertical slice: `POST /chat` (SSE stream) → agent loop → `log_entry` → row in Postgres → streamed confirmation. No UI.
+The vertical slice: `POST /chat` (SSE stream) → agent loop → `tools/call log_entry` over HTTP to tomo's MCP server → row in Postgres → streamed confirmation. The same `log_entry` works from an external MCP client (e.g. Claude Code with a personal access token). No UI.
+
+### Architecture *(decided 2026-11-20)*
+
+```
+POST /chat ─▶ agent loop (Messages API) ─┐
+                                          ├─ HTTP ─▶ /mcp (MCP server) ─▶ tool layer ─▶ services ─▶ Postgres
+external MCP client (PAT) ───────────────┘
+```
+
+- **One tool surface.** Tools are defined once (input DTO + handler over services) and served by the MCP server (`@modelcontextprotocol/sdk`, Streamable HTTP, stateless). Our agent is an MCP client of it, like any external client: it lists the tools, converts them to Messages API tool definitions, and sends each `tool_use` as a `tools/call` over HTTP. No in-process shortcut.
+- **Validation at the MCP boundary**, for every client: the shared `ValidationPipe` settings plus `forbidNonWhitelisted`, so an unexpected field (model confusion or prompt injection) becomes an error result, which is logged, and never a write. Tool definitions sent to Claude also use `strict: true` + `additionalProperties: false`.
+- **Auth on `/mcp`: every call resolves to exactly one user.**
+  - Our agent sends a **turn token**: a JWT minted per chat turn, signed by the server, ~5 min expiry, carrying `sub` (user), `mid` (chat message id) and a scope restricted to MCP.
+  - External clients send a **personal access token** (stored hashed; create / list / revoke via REST).
+  - Login access tokens are *not* accepted on `/mcp`.
+- **Server-only context never crosses the wire.** `/mcp` loads the chat message by the turn token's `mid` (checking it belongs to `sub`) and attaches `raw_input` + `source_message_id` itself. "Today" comes from the server clock + the user's timezone. PAT calls get `source = mcp` + client name, and no `raw_input`.
+- **Tool handlers have no database access.** They receive read-only context (user, action group, today) and call services. Services own one short transaction per call (entry + sets + `agent_actions` row). An ESLint `no-restricted-imports` rule on the tool layer blocks `typeorm` / `DataSource` / `EntityManager` / repositories.
+- **No transaction spans a turn.** A turn waits seconds on Claude between tool calls, and holding a DB connection that long would exhaust the pool. Turn-level undo uses the `agent_actions` log grouped by action group (chat message or MCP request), not a transaction.
+- **Dates:** `date` arguments accept `today` / `yesterday` / `YYYY-MM-DD`, resolved server-side in the user's timezone; results echo the resolved date and day number (constitution rule 8).
+- **Local loopback:** the agent reaches `/mcp` via `MCP_INTERNAL_URL` (localhost in dev and in the prod container). External use needs public HTTPS, so it's blocked on the domain (Step 9). Until then it's tested locally with MCP Inspector / Claude Code.
+- **OAuth 2.1** for one-click claude.ai connectors is post-MVP (see Steps 13+).
 
 ### Locked design decisions
 
-- **Messages API + manual tool loop in NestJS**, not Managed Agents: the tools are our own services against our own Postgres, and the brief puts the loop server-side.
+- **Messages API + manual tool loop in NestJS**, not Managed Agents: the tools are our own services against our own Postgres, and the brief puts the loop server-side. Tools are reached over MCP (above).
 - **Prompt caching vs. date injection.** A timestamp in the system prompt would invalidate the cache on every request. So the system prompt and tool definitions stay byte-stable and cached. Current timestamp, user timezone and profile go into a per-request block *after* the cache breakpoint (a mid-conversation system message), which satisfies constitution rule 8 without losing the cache.
 - **Tool results return entry IDs and the resolved date**, so later corrections in the same conversation can reference rows exactly.
-- **`raw_input` and `source_message_id` are attached server-side** from the request, not taken from tool arguments.
+- **`raw_input` and `source_message_id` are attached server-side** by `/mcp` from the turn token's message id, not taken from tool arguments.
 
 ### Out of scope for 4
 
-Model routing, corrections, the history Q&A tool and rate limits all land in Steps 5–6. This step proves the pipe end to end.
+Model routing, corrections, the history Q&A tool and rate limits all land in Steps 5–6. This step proves the pipe end to end, through MCP, from both our agent and one external client.
 
 ## Step 5 — detail
 
@@ -125,7 +146,9 @@ Model routing, corrections, the history Q&A tool and rate limits all land in Ste
 | `query_history(exercise?, date_range?, muscle_group?)` | Compact rows, capped result size. |
 | `update_profile(fields)` | "I weigh 72kg now". |
 
-`get_user_profile` is dropped as a tool: the profile is small and is injected into the per-request context block (Step 4) instead, saving a round trip.
+`get_user_profile` is dropped for our agent: the profile is small and is injected into the per-request context block (Step 4) instead, saving a round trip. *Revisit for external MCP clients*, whose prompts we don't control. They may need a `get_profile` tool (timezone, unit preference) to phrase results well.
+
+Add `undo_last` (reverts the caller's most recent action group). External MCP clients have no in-app undo button.
 
 ### Model routing
 
@@ -179,6 +202,10 @@ Per-group visibility settings, notifications (so a reaction is only seen when th
 
 - Current streak counts **weeks**: consecutive weeks with at least one training day, with week boundaries in the member's own timezone. Leaderboards also show days trained this week and this month. Daily streaks were rejected because they punish rest days, which is bad advice for strength training.
 
+## Steps 13+ — post-MVP notes
+
+- **OAuth 2.1 for the MCP server**, so claude.ai's "Connect" flow works without pasting a token. This needs an authorization server (authorize + token endpoints, PKCE, client registration) or an identity provider.
+
 ## Sequencing notes
 
 - **1 → 2 → 3 → 4 → 5** is the backend critical path; each step needs the previous schema.
@@ -198,6 +225,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-20** — **MCP from the beginning.** The agent's tools are served by tomo's own MCP server (`/mcp`) and our agent calls them over HTTP as an MCP client, the same surface external Claude apps use. External clients authenticate with personal access tokens in the MVP; OAuth 2.1 is post-MVP. Constitution rules 4, 5, 8, 10, 12, 13, 17 and 24 updated. Also settled in the design discussion: tool handlers get no DB access (services own short per-call transactions, enforced by a lint rule), and no transaction spans a turn. Undo uses the action log, because a turn waits seconds on Claude. Details under Step 4 — Architecture.
 - **2026-11-19** — **Step 2 done.** Accounts carry timezone, locale, weight (kg) + display unit, and age confirmation. Signup maps fields explicitly rather than trusting the request body. Details under Step 2 — Done.
 - **2026-11-19** — **Step 2 data minimised; dates vs timestamps settled.** Height, birth date and sex dropped from the user profile: no MVP feature uses them. Minimum age 16 via a signup checkbox (`ageConfirmedAt`) instead of a birth date. Constitution rule 16 now says to collect only data a feature uses. Timezones are validated but stored as sent (ICU alias canonicalisation is inconsistent across Node versions). Step 3: a workout's day is a `DATE`, not a timestamp, carried as a string.
 - **2026-11-19** — **Step 1 done; streak definition locked.** The backend was copied from denwa-alert's rather than the bare starter (details under Step 1 — Done). Two deliberate departures from denwa: users can no longer read other users (constitution rule 16), and `BaseAclService` no longer turns resource-less denials into 500s. CI generates throwaway JWT keys, so the repo needs no secrets. Step 12's streaks count weeks, not days.
