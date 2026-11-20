@@ -1,3 +1,5 @@
+import '../src/shared/typeorm/pg-date-parser';
+
 import { HttpStatus, INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createConnection, getConnection } from 'typeorm';
@@ -41,7 +43,7 @@ export const resetDBBeforeTest = async (): Promise<void> => {
 };
 
 export const createDBEntities = async (): Promise<void> => {
-  console.log(`Creating entities in ${TEST_DB_NAME} database`);
+  console.log(`Running migrations in ${TEST_DB_NAME} database`);
   await createConnection({
     name: TEST_DB_CONNECTION_NAME,
     type: 'postgres',
@@ -51,7 +53,11 @@ export const createDBEntities = async (): Promise<void> => {
     password: 'example',
     database: TEST_DB_NAME,
     entities: [__dirname + '/../src/**/*.entity{.ts,.js}'],
-    synchronize: true,
+    // Build the schema with the real migrations (not synchronize), so e2e
+    // runs exercise them and get the seeded exercise catalog.
+    migrations: [__dirname + '/../migrations/*{.ts,.js}'],
+    migrationsRun: true,
+    synchronize: false,
   });
 };
 

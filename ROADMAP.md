@@ -10,8 +10,8 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 |---|---|---|
 | 1 | Backend scaffold (NestJS starter → `tomo-gym-backend`, ACL-based auth, CI) | Done |
 | 2 | Accounts — User (IANA timezone, locale, body weight + display unit, age confirmation), email + password signup (email verification deferred to Step 6) | Done |
-| 3 | Workout domain — schema migration (exercises + aliases, sessions, entries, chat transcript, agent action log, idempotency, LLM usage), computed day numbers, deterministic calorie calc, REST CRUD | Not started |
-| 4 | Agent vertical slice over MCP — tomo MCP server (`/mcp`) + `POST /chat` agent loop as its MCP client → Claude → `log_entry` over HTTP → row in Postgres → streamed confirmation; personal access tokens for external MCP clients | Not started |
+| 3 | Workout domain — exercises + aliases (seeded EN/JP catalog), sessions, entries + entry_sets, computed day numbers, deterministic calorie calc, REST CRUD | Done |
+| 4 | Agent vertical slice over MCP — tomo MCP server (`/mcp`) + `POST /chat` agent loop as its MCP client → Claude → `log_entry` over HTTP → row in Postgres → streamed confirmation; personal access tokens for external MCP clients; tables for chat messages, agent action log (undo), idempotency, LLM usage | Not started |
 | 5 | Full agent toolset — corrections, bulk date moves, "same as last time", alias learning, history Q&A, model routing, parsing eval set | Not started |
 | 6 | Signup gate — email verification (SES), per-user rate limit, token budget, usage reporting (must ship before open signup goes live; SES needs the domain) | Not started |
 | 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Not started |
@@ -92,6 +92,19 @@ Changes vs. the brief's model, each to be confirmed when implementation starts:
 - `CalorieService` (pure, table-driven, unit-tested against hand-computed values).
 - Day-number query and REST CRUD for sessions and entries (these also power the edit UI in Step 8), all with ACL in services.
 - Two output DTOs for a training day from the start: `DaySummaryOutput` (date, exercises, muscle groups, day number; no sets, reps or weights) and `DayDetailOutput`. Step 12 serves activity-only friends from the summary DTO (constitution rule 16), so it must never gain detail fields.
+
+### Done (2026-11-20)
+
+- **Scope change:** the chat transcript (`messages`), `agent_actions` undo log, idempotency keys and `llm_usage` moved to **Step 4**. Nothing writes to them until the agent exists (constitution rule 26). Services already take an `EntryOrigin` (`source`, `rawInput`, `sourceMessageId`, `sourceClient`) so Step 4 only has to pass it.
+- **Migrations:** `CreateWorkoutTables` (exercises, exercise_aliases, sessions, entries, entry_sets) and `SeedExerciseCatalog` (32 shared exercises, 138 EN/JP aliases, Compendium MET values; it fails if two exercises claim one alias). Drift check clean; both revert and re-run cleanly.
+- **Exercises** (`src/exercise/`): a shared catalog (`userId` NULL) plus custom exercises per user. Partial unique indexes keep names and aliases unique per scope. Aliases are matched on `normalizeExerciseName` (NFKC, lowercase, separators dropped), so "Lat Pull-Down", "lat pulldown", "ラット・プルダウン" and half-width "ﾗｯﾄﾌﾟﾙﾀﾞｳﾝ" all hit one key. A user's alias beats a shared one. Unknown names fail with 422 and "Did you mean …?" suggestions. `GET /exercises?search=`, `POST /exercises` (a duplicate of any visible alias → 409).
+- **Workout** (`src/workout/`): `POST /entries` (log; sessions are created implicitly), `PATCH /entries/:id` (sets replace, `date` moves, null clears cardio fields, calories recomputed), `DELETE /entries/:id` (soft delete), `POST /entries/move` (atomic bulk move), `GET /days`, `GET /days/:date`, `PUT /days/:date/note`. Owner-only ACL via `WorkoutAclService`.
+- **Modality rules:** strength needs sets; cardio needs a duration; bodyweight takes either. Errors say what to send instead, so the agent can self-correct.
+- **Calories** (`workout/services/calorie.ts`, pure): MET × kg × hours. Walking / running with a speed use the ACSM equations (incline counts; decline treated as flat; 8 km/h switches walk → run). Strength assumes **2 min per set** and is flagged `kcalIsRough`. No body weight → `estKcal` null. Verified against hand-computed values; the brief's 10-min walk is 58.6 kcal.
+- **Dates:** `shared/time/calendar-date.ts` resolves `today` / `yesterday` / `YYYY-MM-DD` in the user's timezone and rejects future and impossible dates. **Found during the build:** node-postgres parses `DATE` into a JS `Date` at local midnight on raw queries (the day-number window query is raw SQL), so on a server east of UTC it reads as the previous day. `shared/typeorm/pg-date-parser.ts` makes `DATE` a plain string everywhere. An e2e test runs with `TZ=Asia/Tokyo` and fails without the fix.
+- **Day numbers** are computed per query (`ROW_NUMBER()` over the user's days with live entries). Moves and deletes renumber correctly, and e2e tests cover both.
+- **E2E setup now runs the real migrations** instead of `synchronize`, so every e2e run exercises the migrations and the seeded catalog.
+- Verified: build and lint clean; 168/168 unit tests (incl. modality rules, exercise resolution and both ACLs); 83/83 e2e tests (33 new: alias resolution EN/JP/half-width, lb sets, smuggled server-only fields ignored, ACSM walk, modality errors, dates, day numbering through moves and deletes, the TZ test, edits, notes, cross-user denial, custom exercises); smoke test on the built app.
 
 ## Step 4 — detail
 
@@ -240,6 +253,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-20** — **Step 3 done.** Exercise catalog (EN/JP aliases), sessions, entries + sets, calorie maths, computed day numbers and REST CRUD. Chat transcript, undo log, idempotency and LLM usage moved to Step 4, where they're first used. Found and fixed a node-postgres `DATE` → local-midnight `Date` conversion on raw queries that would have shifted days on servers east of UTC. Details under Step 3 — Done.
 - **2026-11-20** — **MCP from the beginning.** The agent's tools are served by tomo's own MCP server (`/mcp`) and our agent calls them over HTTP as an MCP client, the same surface external Claude apps use. External clients authenticate with personal access tokens in the MVP; OAuth 2.1 is post-MVP. Constitution rules 4, 5, 8, 10, 12, 13, 17 and 24 updated. Also settled in the design discussion: tool handlers get no DB access (services own short per-call transactions, enforced by a lint rule), and no transaction spans a turn. Undo uses the action log, because a turn waits seconds on Claude. Details under Step 4 — Architecture.
 - **2026-11-19** — **Step 2 done.** Accounts carry timezone, locale, weight (kg) + display unit, and age confirmation. Signup maps fields explicitly rather than trusting the request body. Details under Step 2 — Done.
 - **2026-11-19** — **Step 2 data minimised; dates vs timestamps settled.** Height, birth date and sex dropped from the user profile: no MVP feature uses them. Minimum age 16 via a signup checkbox (`ageConfirmedAt`) instead of a birth date. Constitution rule 16 now says to collect only data a feature uses. Timezones are validated but stored as sent (ICU alias canonicalisation is inconsistent across Node versions). Step 3: a workout's day is a `DATE`, not a timestamp, carried as a string.

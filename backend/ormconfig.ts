@@ -1,3 +1,5 @@
+import './src/shared/typeorm/pg-date-parser';
+
 import * as dotenv from 'dotenv';
 import { DataSource } from 'typeorm';
 

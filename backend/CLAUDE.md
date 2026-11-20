@@ -53,6 +53,8 @@ if (!isAllowed) {
 **Current ACL rules** (defined in `*-acl.service.ts` constructors):
 - [src/user/services/user-acl.service.ts](src/user/services/user-acl.service.ts) — `ADMIN: Manage`, `USER: Read/Update` (self only, via the `isUserItself` rule). There are no cross-user reads, because user records carry email (constitution rule 16). USER has no `List`, so `GET /users` is admin-only.
 - [src/article/services/article-acl.service.ts](src/article/services/article-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List/Read`, `USER: Update/Delete` (author only).
+- [src/exercise/services/exercise-acl.service.ts](src/exercise/services/exercise-acl.service.ts) — `ADMIN: Manage`, `USER: List/Create`, `USER: Read` (shared catalog or own custom exercise).
+- [src/workout/services/workout-acl.service.ts](src/workout/services/workout-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List` (own days), `USER: Read/Update/Delete` (owner only, on entries and sessions). Friends' access (Step 12) gets its own rule plus the summary DTO.
 
 ## Testing patterns
 
@@ -120,6 +122,8 @@ Copy `.env.template` to `.env`. Required vars that need generating, not just fil
 - TypeORM with a filesystem-glob-based config in [ormconfig.ts](ormconfig.ts) — it picks up any `src/**/entities/*.entity.ts` and any file in `migrations/`. When you add an entity, no manual registration is needed for migrations to see it.
 - Entities are registered with DI via `TypeOrmModule.forFeature([Entity])` inside each module's `*.module.ts`.
 - `synchronize: false` is set intentionally. Schema changes go through migrations.
+- **E2E tests build the schema by running the real migrations** (`test/test-utils.ts`), so they cover migrations and seed data. A schema change without a migration fails e2e.
+- Output DTOs in new modules are built by **explicit mapper functions** (`toExerciseOutput`, `toEntryOutput`, `toDayDetail`, `toDaySummary`), not by serialising entities, so a new column can't leak.
 
 ## Shared helpers (use these, don't re-implement)
 
@@ -127,6 +131,9 @@ Copy `.env.template` to `.env`. Required vars that need generating, not just fil
 - `src/shared/units/weight.ts`: `WEIGHT_UNIT`, `toKg()` (exact lb factor, 2 decimals) and `toBodyWeightKg()` (also range-checks 20–400 kg *after* conversion, throwing `BadRequestException`). Unit conversion is server code, never the LLM's (constitution rule 9).
 - `src/shared/typeorm/numeric.transformer.ts`: put `transformer: numericTransformer` on every `numeric` column, or the pg driver hands back strings.
 - `src/shared/constants/locale.constant.ts`: `LOCALE` (`en` | `ja`).
+- `src/shared/time/calendar-date.ts`: `CalendarDate` ('YYYY-MM-DD' string), `todayIn(tz)`, `addDays()` (DST-proof), `resolveWorkoutDate()` (`today` / `yesterday` / date, rejecting future and impossible dates). Workout days are calendar dates, never timestamps.
+- `src/shared/typeorm/pg-date-parser.ts`: makes node-postgres return `DATE` as the raw string. Without it, raw queries get a JS `Date` at local midnight, which is the previous day in UTC on servers east of UTC. It's imported for its side effect by `shared.module.ts`, `ormconfig.ts` and `test/test-utils.ts`; anything else that opens a connection must import it too.
+- `src/exercise/utils/normalize-exercise-name.ts`: the alias key. The seed migration has a frozen copy, so changing it needs a re-normalising migration.
 
 ## Module wiring checklist
 
