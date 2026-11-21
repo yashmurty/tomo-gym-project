@@ -31,7 +31,7 @@ Notes for a new session (or another account) picking this up. The repo is the on
 
 - **Where things stand:** read [ROADMAP.md](ROADMAP.md): the milestones table, then the changelog (newest first).
   - As of 2026-11-21, Steps 1–8 are done (4 and 5a with a stubbed model).
-  - **Next buildable step: 12a** (friend groups: groups, invite links, members, visibility setting, feed), planned in detail under "Step 12 — detail".
+  - **Next buildable step: 12a** (friend groups, part 1: groups and invites), then 12b (managing members), 12c (visibility and the feed) and 12d (reactions, comments, leaderboards). All planned in detail under "Step 12 — detail" in the roadmap.
   - **Blocked on the owner:** 5b needs an Anthropic API key; 6b, 9 and 11 need the domain.
 - **The owner's working preferences:**
   - **Pushing straight to `main` is fine for this repo** (a private project; the owner said so on 2026-11-19). Push the working branch too.

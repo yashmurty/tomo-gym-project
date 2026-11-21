@@ -22,7 +22,10 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 9 | Deploy (blocked on buying the domain) — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
 | 10 | Tests + evals per feature (constitution rules 14–15) | Ongoing discipline, applied inside each step |
 | 11 | Pre-launch — landing page, privacy policy, ToS, SES sandbox exit | Not started |
-| 12 | Friend groups — invite-link groups, per-user visibility (activity-only / full), group feed, reactions, comments, leaderboards (backend + screens; ships before launch) | Not started |
+| 12a | Friend groups, part 1: groups and invites — create, rename, delete; invite link (copy, reset, on/off); join page; read-only member list; caps (backend + screens, like every part of 12; all ship before launch) | Not started |
+| 12b | Friend groups, part 2: managing members — remove (optionally resetting the link), leave, hand over ownership | Not started |
+| 12c | Friend groups, part 3: per-user visibility (activity-only / full) and the group feed at both levels | Not started |
+| 12d | Friend groups, part 4: reactions, comments, leaderboards (may be split further when we get there) | Not started |
 
 Explicitly out of MVP scope per constitution rules 21–26: native app, voice input, billing, languages other than EN/JP, social features beyond friend groups (public profiles, search, followers, DMs, notifications), integrations, data import, progression suggestions, charts.
 
@@ -342,27 +345,31 @@ Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5)
 ### Locked design decisions
 
 - **Reactions and comments are scoped to a group**, not to the session alone. If Ken is in two of your groups, a comment in group A is invisible to group B, so nobody learns about other groups through a shared thread.
-- **Joining is by invite link only.** Groups aren't searchable. The owner can rotate the link (old links stop working), disable it, and remove members.
+- **Joining is by invite link only.** Groups aren't searchable. The owner can rotate the link (old links stop working), disable it, remove members and rename the group (same 60-char cap).
 - **Moderation, the minimum needed with open signup:** an author can delete their own comment, the group owner can delete any comment in the group and remove members, and anyone can leave. Comment posting is rate-limited per user. Reporting to an admin is out of scope.
 - **The owner leaving** must first transfer ownership or delete the group.
 - **Group members see a display name** (`User.name`), never the email address.
 - **Leaderboards use activity metrics only** (days trained, streaks), so they reveal nothing beyond activity-only visibility. There are no weight or volume leaderboards: they would leak details for activity-only users and unfairly favour heavier lifters.
 - **Time boundaries are per member.** "Trained today" and week boundaries use each member's own timezone (constitution rule 8).
-- **Caps:** ≤ 50 members per group, ≤ 10 groups per user.
+- **Caps:** ≤ 50 members per group, ≤ 20 groups per user (every group they're in, owned or joined).
 - **Reuse denwa-alert's tenancy code.** Its `Organization` + `Membership` + `OrgScopedGuard` / `OrgAdminGuard` + ACL patterns map onto `Group` + `GroupMembership`, minus denwa's Team layer, email invitations and join requests. Copy them from the denwa repo at this step; Step 1 still strips them.
 
 ### Plan *(agreed 2026-11-21)*
 
-- **Split:** **12a**: groups and the feed (create; invite link + join page; members: remove, leave, transfer ownership, delete group; the visibility setting; the feed at both levels). **12b**: reactions (on training days and on comments), comments (edit, moderation, rate limit) and leaderboards. Each ships with its backend and its screens.
+- **Split** into four parts, each shipping with its backend, screens, tests and docs:
+  - **12a, groups and invites:** the tables, the `group` module and its ACL; create, rename and delete; the Groups tab; a group page with the invite card and a read-only member list; the invite link (copy, reset, on/off); the join page; the caps; sign-up keeping `?from=` so an invite survives it.
+  - **12b, managing members:** remove (with the option to reset the link), leave, hand over ownership; the owner can't leave until they've handed over or deleted the group.
+  - **12c, visibility and the feed:** the setting in Profile; the join page's "what joining shares" panel; the feed at both levels with its separate DTOs. The privacy-sensitive part ships last and on its own, so it gets a focused review. Until it ships, joining shares no workout data.
+  - **12d, reactions, comments and leaderboards** (as planned below; may be split further).
 - **Screens:**
   - a fourth tab, **Groups** (Log · History · Groups · Profile);
   - a group page with Feed, Leaderboard and Members sections, plus invite and member controls;
   - `/join/:token`, a join page behind sign-in.
-- **Feed item = one member's training day**, newest first, paged, members' **whole history** (decided below).
+- **Feed item = one member's training day**, newest first, paged, members' **whole history** (decided below). **Your own days show too**, at your own setting, so the feed shows you what friends see.
   - **Activity-only** uses the existing `DaySummaryOutput`: day, Day N, exercises, muscle groups.
   - **Full details** uses its own DTO, adding sets, reps, weights (in the *viewer's* unit, converted by the server) and cardio numbers.
   - **Never shared at either level:** calories (derived from body weight, which is private), the day note, and raw chat input.
-- **The visibility setting** lives in Profile. The join page states it before the Join button, together with what joining shares.
+- **The visibility setting** lives in Profile, with an explicit warning that it applies to all your groups. The join page states it before the Join button, together with what joining shares, and links to the setting in Profile rather than changing it in place. Profile links back to the invite when you came from one.
 - **Weeks start on Monday** for everyone (the ISO and Japanese convention), each in the member's own timezone.
 - **Reactions** on training days **and on comments**: tap to toggle; per-emoji counts plus "you reacted". You may react to your own day or comment.
 - **Comments:** oldest first.
@@ -371,9 +378,11 @@ Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5)
   - Rate limit: 10 per minute and 100 per day per user, posts and edits together.
 - **Leaderboard:** days this week, days this month, current streak in weeks, and a "trained today" dot.
 - **Invite links:** any member can copy and share the link; only the owner can rotate it, disable it, or remove members. A leaked link only lets someone join that group, and rotating stops it.
+  - **Off and on again** restores the same link; reset it to kill it for good. While it's off, opening it says the link isn't active and doesn't reveal the group's name.
+  - **Removing a member** offers to reset the link too (unticked by default), since a removed member could otherwise rejoin with the link they already have. Resetting on every removal was rejected: it breaks the link everyone else holds.
 - **New members' whole history** shows in the group feed at their visibility level. Chosen over "from the join date", so the join page says plainly what joining shares.
 - **Leaving or removal:** the member's own days leave the feed at once. Comments and reactions they made stay, attributed to **"Former member"** (their name is no longer shown), and reactions stay counted. The owner can still delete those comments; the former member can't unless they rejoin.
-- **Unchanged:** the agent never reads friends' data or acts in groups (constitution rule 10). Friends' views are built in the service layer per visibility level, with separate DTOs (rule 16).
+- **Unchanged:** the agent never reads friends' data or acts in groups (constitution rule 10), and it can't change the visibility setting (it isn't in `update_profile`). Friends' views are built in the service layer per visibility level, with separate DTOs (rule 16).
 
 ### Out of scope for 12
 
@@ -405,6 +414,17 @@ Per-group visibility settings, notifications (so a reaction is only seen when th
 Edit the status column on the milestones table when a step flips state. Add a dated note under `## Changelog` when a scope or sequencing decision changes, so future-you (and future-Claude) can see *why* the plan shifted rather than just *that* it shifted. Newest entries first.
 
 ## Changelog
+
+- **2026-11-21** — **Step 12 split into four parts; open questions answered.**
+  - **Split:** the old 12a was too big for one change, so it became 12a (groups and invites), 12b (managing members) and 12c (visibility and the feed). The old 12b (reactions, comments, leaderboards) is now 12d. The feed ships last and on its own, so the privacy-sensitive code gets a focused review.
+  - **Decided:**
+    - your own days show in the feed, at your own setting;
+    - the owner can rename a group;
+    - the cap is **20 groups per user** (up from 10), counting every group you're in; 50 members per group is unchanged;
+    - the join page links to the visibility setting in Profile instead of changing it in place, and Profile warns that it applies to all your groups;
+    - turning an invite link off and on restores the same link, and a link that's off doesn't reveal the group;
+    - removing a member offers to reset the link (unticked);
+    - the agent can't change the visibility setting.
 
 - **2026-11-21** — **Step 12: comment editing and reactions on comments added.**
   - Authors can edit their own comments (an "edited" label, no history; edits share the comment rate limit).
