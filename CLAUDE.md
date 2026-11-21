@@ -25,6 +25,30 @@ Conversational workout logger. Users type workouts in plain text → a server-si
 
 Backend and frontend are separate directories at the root, not a monorepo. No root `package.json`. Conventions are copied from denwa-alert (same stack); when in doubt, check how denwa-alert does it.
 
+## Resuming work
+
+Notes for a new session (or another account) picking this up. The repo is the only record; earlier chat history doesn't carry over.
+
+- **Where things stand:** read [ROADMAP.md](ROADMAP.md): the milestones table, then the changelog (newest first).
+  - As of 2026-11-21, Steps 1–8 are done (4 and 5a with a stubbed model).
+  - **Next buildable step: 12a** (friend groups: groups, invite links, members, visibility setting, feed), planned in detail under "Step 12 — detail".
+  - **Blocked on the owner:** 5b needs an Anthropic API key; 6b, 9 and 11 need the domain.
+- **The owner's working preferences:**
+  - **Pushing straight to `main` is fine for this repo** (a private project; the owner said so on 2026-11-19). Push the working branch too.
+  - Talk through a step's plan before building when asked. Decisions that are the owner's go to them, and the answers are recorded in the roadmap changelog.
+  - Keep text diagrams narrow and vertical: wide ones render broken on the owner's screen.
+- **Open work in other repos (on GitHub, not in this repo):**
+  - denwa-alert PRs, each on its own branch:
+    - yashmurty/denwa-alert-project#1: ACL 500 → 401;
+    - yashmurty/denwa-alert-project#3: `updateUser` copies allowed fields;
+    - yashmurty/denwa-alert-project#4: Node 24; merging changes production's runtime, so watch the first deploy;
+    - yashmurty/denwa-alert-project#5: a wrong password no longer shows "session expired".
+
+    denwa changes always go through PRs, never straight to its `main`.
+  - Offered, not started: a friendlier login error message from denwa's backend.
+  - Issues yashmurty/denwa-alert-project#2 and yashmurty/tomo-gym-project#1: the `for...of` refactor, deferred.
+- **Local setup:** Node 24. Create `backend/.env` from `.env.template` with fresh keys from `backend/scripts/generate-jwt-keys` (never committed). Postgres runs on 5433, the API on 3001 and the app on 5174 (Vite proxies `/api`). Details are in [backend/CLAUDE.md](backend/CLAUDE.md) and [frontend/CLAUDE.md](frontend/CLAUDE.md).
+
 ## Cross-cutting rules worth repeating here
 
 These are in [constitution.md](constitution.md) but are the ones most likely to be violated:
