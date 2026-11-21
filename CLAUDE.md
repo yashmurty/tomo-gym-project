@@ -17,8 +17,8 @@ Conversational workout logger. Users type workouts in plain text → a server-si
 ├── constitution.md   # project rules — authoritative
 ├── ROADMAP.md        # MVP plan, status, changelog
 ├── CLAUDE.md         # this file
-├── backend/          # NestJS REST API + agent loop — see backend/CLAUDE.md (Steps 1–5a and 6a done, with a stubbed model; 5b needs an API key, 6b the domain)
-├── frontend/         # Vite + React + TS SPA, mobile-first PWA, EN/JP — see frontend/CLAUDE.md (Steps 7 and 8 done: sign-in/up, chat logger, history, profile; friend groups are Step 12)
+├── backend/          # NestJS REST API + agent loop — see backend/CLAUDE.md (Steps 1–5a, 6a and 12a done, with a stubbed model; 5b needs an API key, 6b the domain)
+├── frontend/         # Vite + React + TS SPA, mobile-first PWA, EN/JP — see frontend/CLAUDE.md (Steps 7, 8 and 12a done: sign-in/up, chat logger, history, profile, groups and invites)
 └── infra/            # Terraform for tomo-gym's own AWS resources (Step 9)
                       #   (shared VPC / EC2 host / RDS live in the octirion-platform repo)
 ```
@@ -30,8 +30,8 @@ Backend and frontend are separate directories at the root, not a monorepo. No ro
 Notes for a new session (or another account) picking this up. The repo is the only record; earlier chat history doesn't carry over.
 
 - **Where things stand:** read [ROADMAP.md](ROADMAP.md): the milestones table, then the changelog (newest first).
-  - As of 2026-11-21, Steps 1–8 are done (4 and 5a with a stubbed model).
-  - **Next buildable step: 12a** (friend groups, part 1: groups and invites), then 12b (managing members), 12c (visibility and the feed) and 12d (reactions, comments, leaderboards). All planned in detail under "Step 12 — detail" in the roadmap.
+  - As of 2026-11-21, Steps 1–8 and 12a are done (4 and 5a with a stubbed model).
+  - **Next buildable step: 12b** (friend groups, part 2: managing members), then 12c (visibility and the feed) and 12d (reactions, comments, leaderboards). All planned in detail under "Step 12 — detail" in the roadmap; what 12a built is under "12a Done".
   - **Blocked on the owner:** 5b needs an Anthropic API key; 6b, 9 and 11 need the domain.
 - **The owner's working preferences:**
   - **Pushing straight to `main` is fine for this repo** (a private project; the owner said so on 2026-11-19). Push the working branch too.

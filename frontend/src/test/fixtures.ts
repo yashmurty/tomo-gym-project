@@ -1,4 +1,8 @@
-import type { DayDetailOutput, EntryOutput } from '../lib/generated/models';
+import type {
+  DayDetailOutput,
+  EntryOutput,
+  GroupOutput,
+} from '../lib/generated/models';
 
 // REST shapes for History tests. Weights come from the server in the user's
 // unit (`weight`, `weightUnit`) next to kg.
@@ -43,6 +47,19 @@ export function dayOutput(
     note: null,
     totalKcal: 20.4,
     entries: [entryOutput()],
+    ...overrides,
+  };
+}
+
+// A group as GET /groups/:id returns it, seen by a plain member.
+export function groupOutput(overrides: Partial<GroupOutput> = {}): GroupOutput {
+  return {
+    id: 3,
+    name: 'Morning Lifters',
+    role: 'member',
+    memberCount: 6,
+    inviteEnabled: true,
+    inviteToken: 'abcdefghijklmnopqrstuv',
     ...overrides,
   };
 }

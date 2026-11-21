@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 
 import { useI18n } from '../i18n/i18n-context';
 import type { MessageKey } from '../i18n/i18n';
-import { CalendarIcon, ChatIcon, UserIcon } from './icons';
+import { CalendarIcon, ChatIcon, GroupIcon, UserIcon } from './icons';
 
 const TABS: {
   to: string;
@@ -11,6 +11,7 @@ const TABS: {
 }[] = [
   { to: '/', label: 'nav.log', Icon: ChatIcon },
   { to: '/history', label: 'nav.history', Icon: CalendarIcon },
+  { to: '/groups', label: 'nav.groups', Icon: GroupIcon },
   { to: '/profile', label: 'nav.profile', Icon: UserIcon },
 ];
 
@@ -41,7 +42,8 @@ export default function AppLayout() {
             <li key={to} className="flex-1">
               <NavLink
                 to={to}
-                // Log is "/" exactly; History stays lit on /history/<day>.
+                // Log is "/" exactly; History stays lit on /history/<day>
+                // and Groups on /groups/<id>.
                 end={to === '/'}
                 className={({ isActive }) =>
                   `flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs ${

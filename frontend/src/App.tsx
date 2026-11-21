@@ -4,7 +4,10 @@ import AppLayout from './components/AppLayout';
 import PublicLayout from './components/PublicLayout';
 import RequireAuth from './components/RequireAuth';
 import Day from './routes/Day';
+import GroupPage from './routes/Group';
+import Groups from './routes/Groups';
 import History from './routes/History';
+import Join from './routes/Join';
 import Log from './routes/Log';
 import Login from './routes/Login';
 import NotFound from './routes/NotFound';
@@ -20,6 +23,9 @@ export default function App() {
           <Route path="/" element={<Log />} />
           <Route path="/history" element={<History />} />
           <Route path="/history/:date" element={<Day />} />
+          <Route path="/groups" element={<Groups />} />
+          <Route path="/groups/:id" element={<GroupPage />} />
+          <Route path="/join/:token" element={<Join />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Route>

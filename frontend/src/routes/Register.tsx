@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 
 import { Field, FormError, inputClass, SubmitButton } from '../components/form';
@@ -10,6 +10,7 @@ import type { MessageKey } from '../i18n/i18n';
 import { ApiError } from '../lib/api-error';
 import { useAuth } from '../lib/auth-context';
 import { describeError } from '../lib/describe-error';
+import { safeRedirect, withFrom } from '../lib/safe-redirect';
 
 // Unit symbols, the same in both languages (like the language names).
 const UNITS = ['kg', 'lb'] as const;
@@ -23,6 +24,9 @@ export default function Register() {
   const { t, locale } = useI18n();
   const { user, register: registerUser } = useAuth();
   const navigate = useNavigate();
+  // Where to go after signing up, e.g. back to an invite (/join/<token>).
+  const [params] = useSearchParams();
+  const from = safeRedirect(params.get('from'));
   const [serverError, setServerError] = useState<MessageKey | null>(null);
   const [timezone] = useState(deviceTimezone);
 
@@ -66,7 +70,7 @@ export default function Register() {
     defaultValues: { weightUnit: 'kg', weight: '', ageConfirmed: false },
   });
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={from} replace />;
 
   const onSubmit = async (values: Values) => {
     setServerError(null);
@@ -82,7 +86,7 @@ export default function Register() {
         weightUnit: values.weightUnit,
         ...(values.weight !== '' && { weight: Number(values.weight) }),
       });
-      navigate('/', { replace: true });
+      navigate(from, { replace: true });
     } catch (err) {
       setServerError(registerError(err));
     }
@@ -184,7 +188,10 @@ export default function Register() {
 
       <p className="text-muted text-center text-sm">
         {t('register.haveAccount')}{' '}
-        <Link to="/login" className="text-accent inline-block py-3 font-medium">
+        <Link
+          to={withFrom('/login', from)}
+          className="text-accent inline-block py-3 font-medium"
+        >
           {t('register.loginLink')}
         </Link>
       </p>

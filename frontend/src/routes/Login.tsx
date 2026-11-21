@@ -10,7 +10,7 @@ import type { MessageKey } from '../i18n/i18n';
 import { ApiError } from '../lib/api-error';
 import { useAuth } from '../lib/auth-context';
 import { describeError } from '../lib/describe-error';
-import { safeRedirect } from '../lib/safe-redirect';
+import { safeRedirect, withFrom } from '../lib/safe-redirect';
 
 export default function Login() {
   const { t } = useI18n();
@@ -104,7 +104,7 @@ export default function Login() {
       <p className="text-muted text-center text-sm">
         {t('login.noAccount')}{' '}
         <Link
-          to="/register"
+          to={withFrom('/register', from)}
           className="text-accent inline-block py-3 font-medium"
         >
           {t('login.registerLink')}

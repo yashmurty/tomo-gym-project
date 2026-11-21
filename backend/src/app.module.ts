@@ -8,6 +8,7 @@ import { ArticleModule } from './article/article.module';
 import { AuthModule } from './auth/auth.module';
 import { ChatModule } from './chat/chat.module';
 import { ExerciseModule } from './exercise/exercise.module';
+import { GroupModule } from './group/group.module';
 import { McpModule } from './mcp/mcp.module';
 import { SharedModule } from './shared/shared.module';
 import { UsageModule } from './usage/usage.module';
@@ -27,6 +28,7 @@ import { WorkoutModule } from './workout/workout.module';
     McpModule,
     AgentModule,
     UsageModule,
+    GroupModule,
   ],
   controllers: [AppController],
   providers: [AppService],

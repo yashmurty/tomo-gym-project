@@ -95,6 +95,25 @@ describe('Register', () => {
     expect(registerLocal.mock.calls[0][0]).toMatchObject({ weightUnit: 'kg' });
   });
 
+  test('goes back to the invite it came from after signing up', async () => {
+    registerLocal.mockResolvedValue({ data: {} });
+    renderWithProviders(
+      <Routes>
+        <Route path="/register" element={<Register />} />
+        <Route path="/join/:token" element={<p>join page</p>} />
+      </Routes>,
+      { route: '/register?from=%2Fjoin%2Fabc' },
+    );
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/login?from=%2Fjoin%2Fabc',
+    );
+
+    await fillIn();
+
+    expect(await screen.findByText('join page')).toBeVisible();
+  });
+
   test('requires the age confirmation', async () => {
     renderRegister();
     await fillIn({ age: false });

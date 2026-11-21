@@ -23,13 +23,14 @@ function renderShell(route: string) {
 describe('AppLayout', () => {
   beforeEach(() => localStorage.clear());
 
-  test('has a bottom tab bar with Log, History and Profile', () => {
+  test('has a bottom tab bar with Log, History, Groups and Profile', () => {
     renderShell('/');
     const nav = screen.getByRole('navigation', { name: 'Main' });
     const links = within(nav).getAllByRole('link');
     expect(links.map((l) => [l.textContent, l.getAttribute('href')])).toEqual([
       ['Log', '/'],
       ['History', '/history'],
+      ['Groups', '/groups'],
       ['Profile', '/profile'],
     ]);
     expect(screen.getByText('page')).toBeInTheDocument();
@@ -46,6 +47,14 @@ describe('AppLayout', () => {
     );
   });
 
+  test('keeps Groups lit inside a group', () => {
+    renderShell('/groups/3');
+    expect(screen.getByRole('link', { name: 'Groups' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
   test('labels the tabs in Japanese', () => {
     localStorage.setItem('tomo.locale', 'ja');
     renderShell('/');
@@ -54,6 +63,6 @@ describe('AppLayout', () => {
       within(nav)
         .getAllByRole('link')
         .map((l) => l.textContent),
-    ).toEqual(['記録', '履歴', 'プロフィール']);
+    ).toEqual(['記録', '履歴', 'グループ', 'プロフィール']);
   });
 });

@@ -6,3 +6,9 @@ export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? '';
 export function mcpServerUrl(): string {
   return `${API_BASE_URL || window.location.origin}/api/v1/mcp`;
 }
+
+// The link friends open to join a group. It points at this app (the join
+// page), not at the API.
+export function inviteUrl(token: string): string {
+  return `${window.location.origin}/join/${token}`;
+}

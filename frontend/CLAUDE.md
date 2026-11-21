@@ -2,7 +2,7 @@
 
 Vite + React + TypeScript SPA, mobile-first and installable as a PWA. Stack is pinned by [constitution.md](../constitution.md) (rules 2, 20, 23). Conventions are copied from denwa-alert's frontend; when in doubt, check how it does things there.
 
-**Status:** Steps 7 (scaffold), 8a (sign-in, sign-up, the chat logger) and 8b (history with edit/delete, the full profile) are done. Next on the frontend: friend-group screens (Step 12). See [../ROADMAP.md](../ROADMAP.md).
+**Status:** Steps 7 (scaffold), 8a (sign-in, sign-up, the chat logger), 8b (history with edit/delete, the full profile) and 12a (groups and invites) are done. Next on the frontend: managing members (Step 12b). See [../ROADMAP.md](../ROADMAP.md).
 
 ## Stack
 
@@ -34,6 +34,7 @@ frontend/
 │   ├── entries/              # shared by chat and history: EntryCard, entry-result (shapes + REST adapter), format
 │   ├── history/              # DayNote, EntryItem (view / edit / delete), EntryEditor
 │   ├── profile/              # WeightSettings, TimezoneSetting, AccessTokens
+│   ├── groups/               # GroupName, InviteCard, MemberList, OwnerBadge, group-api (409 codes, member counts)
 │   ├── components/           # AppLayout (tab shell), PublicLayout, LanguageToggle, RequireAuth, form, icons
 │   ├── i18n/                 # en.ts, ja.ts, i18n.ts (helpers), i18n-context.tsx
 │   ├── lib/
@@ -51,17 +52,20 @@ frontend/
 
 ## Routes
 
-| Path             | Auth     | Layout       | Purpose                                                            |
-| ---------------- | -------- | ------------ | ------------------------------------------------------------------ |
-| `/`              | required | AppLayout    | Log: the chat logger                                               |
-| `/history`       | required | AppLayout    | Training days, newest first ("Show older days" pages back)         |
-| `/history/:date` | required | AppLayout    | One day: note, entries; edit sets / cardio, delete                 |
-| `/profile`       | required | AppLayout    | Language, unit, body weight, time zone, MCP access tokens, log out |
-| `/login`         | public   | PublicLayout | Sign in (`?from=` path to return to; `?session=expired`)           |
-| `/register`      | public   | PublicLayout | Sign up; signs in afterwards                                       |
-| `*`              | —        | PublicLayout | NotFound                                                           |
+| Path             | Auth     | Layout       | Purpose                                                                    |
+| ---------------- | -------- | ------------ | -------------------------------------------------------------------------- |
+| `/`              | required | AppLayout    | Log: the chat logger                                                       |
+| `/history`       | required | AppLayout    | Training days, newest first ("Show older days" pages back)                 |
+| `/history/:date` | required | AppLayout    | One day: note, entries; edit sets / cardio, delete                         |
+| `/groups`        | required | AppLayout    | Your friend groups; create one                                             |
+| `/groups/:id`    | required | AppLayout    | A group: name (owner renames), invite link, members; owner deletes         |
+| `/join/:token`   | required | AppLayout    | Where an invite link lands: preview, Join                                  |
+| `/profile`       | required | AppLayout    | Language, unit, body weight, time zone, MCP access tokens, log out         |
+| `/login`         | public   | PublicLayout | Sign in (`?from=` path to return to; `?session=expired`)                   |
+| `/register`      | public   | PublicLayout | Sign up; signs in afterwards (`?from=` too, so an invite survives sign-up) |
+| `*`              | —        | PublicLayout | NotFound                                                                   |
 
-`RequireAuth` redirects signed-out visitors to `/login?from=<path>`. `AppLayout` is the signed-in shell: a slim header, the page, and a fixed bottom tab bar (Log / History / Profile).
+`RequireAuth` redirects signed-out visitors to `/login?from=<path>`. Login and Register pass `from` to each other (`withFrom()` in `lib/safe-redirect.ts`). `AppLayout` is the signed-in shell: a slim header, the page, and a fixed bottom tab bar (Log / History / Groups / Profile).
 
 ## EN/JP: no hardcoded copy
 
@@ -138,6 +142,26 @@ const updated = res.data.data; // outer .data = backend envelope { data, meta }
   - **Access tokens** (`profile/AccessTokens.tsx`) list, create and revoke personal access tokens for external MCP clients. The token is shown once, with the server URL (`mcpServerUrl()` in `lib/config.ts`) and a `claude mcp add` example; the list only has the prefix.
   - `CopyField` falls back to selecting the text where the clipboard API isn't available.
 - **Loading pattern:** fetch inside the effect and set state in `.then` (with a `current` flag for unmounts). Reload by bumping a counter in the effect's dependencies; React's lint rejects calling a state-setting loader straight from an effect.
+
+## Friend groups (Step 12)
+
+- **Groups** (`routes/Groups.tsx`) lists `GET /groups` and creates groups (opening the new one). **A group** (`routes/Group.tsx`) shows:
+  - `GroupName`, which the owner can rename;
+  - `InviteCard`: any member copies `inviteUrl(token)` (`lib/config.ts`, the app's own origin); the owner resets the link after confirming, or turns it off and on;
+  - `MemberList`: names only, owner first, "(You)";
+  - the owner's Delete, after confirming.
+- **Status codes:**
+  - **404** means "not in this group or no such group"; the page says exactly that.
+  - Owner-only controls are hidden from members. The server answers **403** if one is tried anyway.
+  - **409** codes `group_full` / `group_limit` map to catalog keys in `groupError()` (`groups/group-api.ts`). The limits stay on the server, so the copy doesn't repeat the numbers.
+- **Join** (`routes/Join.tsx`) loads `GET /invites/:token`:
+  - **preview** → Join → the group;
+  - **already a member** → "Open group";
+  - **404** → "isn't active", which names nothing.
+
+  Step 12c adds the "what joining shares" panel and its link to the Profile setting.
+
+- **Member counts** use `memberCountText()`: "1 member" has its own key, since an English plural can't be a placeholder.
 
 ## Auth
 

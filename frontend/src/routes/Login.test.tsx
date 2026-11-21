@@ -69,6 +69,13 @@ describe('Login', () => {
     expect(await screen.findByText('history page')).toBeVisible();
   });
 
+  test('keeps the destination on the link to sign up, so an invite survives', () => {
+    renderAt('/login?from=%2Fjoin%2Fabc');
+    expect(
+      screen.getByRole('link', { name: 'Create an account' }),
+    ).toHaveAttribute('href', '/register?from=%2Fjoin%2Fabc');
+  });
+
   test('never redirects off-site', async () => {
     login.mockResolvedValue(tokens());
     renderAt('/login?from=%2F%2Fevil.example');

@@ -3,3 +3,9 @@
 export function safeRedirect(from: string | null): string {
   return from && from.startsWith('/') && !from.startsWith('//') ? from : '/';
 }
+
+// Carries the destination between sign-in and sign-up, so an invite link
+// survives a visitor who has to create an account first.
+export function withFrom(path: string, from: string): string {
+  return from === '/' ? path : `${path}?from=${encodeURIComponent(from)}`;
+}

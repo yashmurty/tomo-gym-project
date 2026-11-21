@@ -57,7 +57,8 @@ if (!isAllowed) {
 - [src/action-log/services/action-log-acl.service.ts](src/action-log/services/action-log-acl.service.ts) — `ADMIN: Manage`, `USER: Update` (undo) on own logged actions only.
 - [src/access-token/services/access-token-acl.service.ts](src/access-token/services/access-token-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List`, `USER: Delete` (owner only).
 - [src/usage/services/usage-acl.service.ts](src/usage/services/usage-acl.service.ts) — `ADMIN: Manage` only (the cross-user usage report).
-- [src/workout/services/workout-acl.service.ts](src/workout/services/workout-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List` (own days), `USER: Read/Update/Delete` (owner only, on entries and sessions). Friends' access (Step 12) gets its own rule plus the summary DTO.
+- [src/workout/services/workout-acl.service.ts](src/workout/services/workout-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List` (own days), `USER: Read/Update/Delete` (owner only, on entries and sessions). Friends' access (Step 12c) gets its own rule plus the summary DTO.
+- [src/group/services/group-acl.service.ts](src/group/services/group-acl.service.ts) — the resource is the **caller's own membership** of the group (roles are per group). `USER: Create/List` (create, join by invite, list your groups), `USER: Read` (members), `USER: Update/Delete` (the group's owner). **No `ADMIN` rule**, deliberately: workout data is visible only to people who share a group (constitution rule 16).
 
 ## Testing patterns
 
@@ -163,6 +164,21 @@ Session length: `JWT_ACCESS_TOKEN_EXP_IN_SEC=3600` (1 hour) and `JWT_REFRESH_TOK
 - **`MCP_INTERNAL_URL`:** where the agent reaches `/mcp` (default `http://localhost:$APP_PORT/api/v1/mcp`). E2E tests listen on a real port and override `McpEndpoint`.
 - **Per-request facts** (now, timezone, profile) go in the `<context>` block of the *current* user message only (`system-prompt.ts`). Keep `SYSTEM_PROMPT` byte-stable for caching.
 - **The chat API:** `POST /chat` streams `turn`, `text`, `tool`, then `done` or `error`, which carry `changes` (undoable changes the turn saved, from `UndoService.groupStates`). `GET /chat/messages?before=&limit=` returns the user's turns, newest page first and oldest first within a page, with the same events (`turnEvents()`, shared with replay), `changes` and `undone`. `POST /chat/messages/:id/undo` undoes a turn.
+
+## Friend groups (Step 12)
+
+- **Module:** `src/group/`. `GroupService` handles groups, invite links, joining and the member list. `group_memberships` holds each member's role, and `groups.ownerUserId` mirrors the one `owner` membership (a partial unique index allows one owner per group); change both together.
+- **Status codes, checked in the service** (adapted from denwa's `OrgScopedGuard` / `OrgAdminGuard`):
+  - **404** for a group you're not in, exactly as for one that doesn't exist, so non-members can't probe for groups.
+  - **403** (`ForbiddenException`) when a member tries an owner-only action. Not 401: the app treats a 401 on a signed-in request as an expired token, refreshes it and retries.
+  - **409** with `code` `group_full` or `group_limit` at the caps (`GROUP_LIMITS`: 50 members, 20 groups per user, counting every group the user is in).
+- **Invite links:**
+  - The token is 128 random bits, base64url (`utils/invite-token.ts`), stored as is so members can copy it again.
+  - `GroupOutput.inviteToken` is null while the link is off.
+  - A token that's off, reset, unknown or malformed answers 404 without naming the group.
+  - Joining is idempotent (an existing member gets the group back).
+- **Concurrency:** joining locks the group row and then the user row; creating a group locks the user row. That keeps both caps exact under parallel requests. Keep that lock order in new code.
+- **Member names only:** `findForGroupWithNames` loads just `id` and `name` from `users`, and `toGroupMemberOutput` copies only the name. Members never see email or body metrics.
 
 ## Signup gate: limits and budgets (Step 6a)
 

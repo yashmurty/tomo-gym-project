@@ -22,7 +22,7 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 9 | Deploy (blocked on buying the domain) — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
 | 10 | Tests + evals per feature (constitution rules 14–15) | Ongoing discipline, applied inside each step |
 | 11 | Pre-launch — landing page, privacy policy, ToS, SES sandbox exit | Not started |
-| 12a | Friend groups, part 1: groups and invites — create, rename, delete; invite link (copy, reset, on/off); join page; read-only member list; caps (backend + screens, like every part of 12; all ship before launch) | Not started |
+| 12a | Friend groups, part 1: groups and invites — create, rename, delete; invite link (copy, reset, on/off); join page; read-only member list; caps (backend + screens, like every part of 12; all ship before launch) | Done |
 | 12b | Friend groups, part 2: managing members — remove (optionally resetting the link), leave, hand over ownership | Not started |
 | 12c | Friend groups, part 3: per-user visibility (activity-only / full) and the group feed at both levels | Not started |
 | 12d | Friend groups, part 4: reactions, comments, leaderboards (may be split further when we get there) | Not started |
@@ -384,6 +384,59 @@ Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5)
 - **Leaving or removal:** the member's own days leave the feed at once. Comments and reactions they made stay, attributed to **"Former member"** (their name is no longer shown), and reactions stay counted. The owner can still delete those comments; the former member can't unless they rejoin.
 - **Unchanged:** the agent never reads friends' data or acts in groups (constitution rule 10), and it can't change the visibility setting (it isn't in `update_profile`). Friends' views are built in the service layer per visibility level, with separate DTOs (rule 16).
 
+### 12a Done (2026-11-21)
+
+**Backend** (`src/group/`, migration `CreateGroups`):
+- **Tables:**
+  - `groups`: invite token unique, `ownerUserId` cascading with the user;
+  - `group_memberships`: unique (group, user), one owner per group (a partial unique index), indexed by user.
+- **ACL:** `GroupAclService` takes the caller's own membership as the resource:
+  - any user can create, join and list;
+  - members can read;
+  - the owner can update and delete.
+  - **No admin rule:** system admins can't see into groups (rule 16).
+- **Status codes:**
+  - **404** for a group you're not in, the same as for one that doesn't exist (denwa's `OrgScopedGuard` rule, checked in the service).
+  - **403** for a member trying an owner-only action. Not 401, because the app reads a 401 as an expired token and would refresh and retry.
+  - **409** at a cap, with code `group_full` or `group_limit`.
+- **Endpoints:**
+  - `POST/GET /groups`;
+  - `GET/PATCH/DELETE /groups/:id`;
+  - `GET /groups/:id/members`;
+  - `POST /groups/:id/invite/reset`;
+  - `PUT /groups/:id/invite`;
+  - `GET /invites/:token`;
+  - `POST /invites/:token/join`.
+- **Joining:**
+  - It's idempotent: an existing member gets the group back.
+  - It locks the group row, then the user row, so the member and group caps hold under concurrent joins. Creating a group locks the user row.
+  - A malformed token is a 404 without a database lookup.
+- **Invite token:** the group output shows it only while the link is on. A link that's off, reset or unknown answers 404 without naming the group.
+- **Member list:** loads only `id` and `name` from `users`, and the mapper copies only the name.
+
+**Frontend:**
+- A Groups tab (Log · History · Groups · Profile).
+- `/groups`: your groups and the create form.
+- `/groups/:id`:
+  - name, with rename for the owner;
+  - invite card: copy for everyone; reset (confirmed) and off/on for the owner;
+  - member list;
+  - delete (confirmed) for the owner.
+- `/join/:token`: preview, join, "already a member", and "not active".
+- Sign-in and sign-up pass `?from=` to each other, so a new user who opens an invite comes back to it after signing up.
+- No "what joining shares" panel yet: it arrives with the feed in 12c. Until then, joining shares no workout data.
+
+**Verified on Node 24.22.3:**
+- **Backend:**
+  - build and lint clean;
+  - 270/270 unit tests (32 new);
+  - 157/157 e2e tests (17 new): create, names, listing, preview, join and re-join, dead links, names-only members, 404 for non-members, 403 for members, no admin access, rename, reset, off/on keeping the link, both caps, delete.
+- **Migration:** goes up, down and up again, and the drift check is clean.
+- **Frontend:**
+  - format, lint and build clean;
+  - 161/161 tests (26 new, EN and JP).
+- **Screens:** checked at 375×667 against the real API in both languages, with no horizontal scroll.
+
 ### Out of scope for 12
 
 Per-group visibility settings, notifications (so a reaction is only seen when the user opens the app), DMs and group chat, challenges with custom goals, admin reporting, and the agent reading friends' data or posting reactions or comments for the user.
@@ -415,6 +468,13 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-21** — **12a done: groups and invites.** Create, rename and delete groups; the invite link (copy, reset, off/on) and the join page; a read-only member list; caps of 50 members and 20 groups. Decided while building:
+  - a member trying an owner-only action gets 403 (a 401 would make the app refresh its token and retry);
+  - system admins get no access to groups;
+  - joining a group you're already in just returns it;
+  - sign-up keeps `?from=`, so an invite survives creating an account.
+
+  Details under Step 12 — 12a Done. **Next: 12b** (managing members).
 - **2026-11-21** — **Step 12 split into four parts; open questions answered.**
   - **Split:** the old 12a was too big for one change, so it became 12a (groups and invites), 12b (managing members) and 12c (visibility and the feed). The old 12b (reactions, comments, leaderboards) is now 12d. The feed ships last and on its own, so the privacy-sensitive code gets a focused review.
   - **Decided:**

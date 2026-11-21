@@ -37,6 +37,16 @@ export function CalendarIcon(props: IconProps) {
   );
 }
 
+export function GroupIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5" />
+      <path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4M17.5 14.8c2 .7 3.3 2.5 4 5.2" />
+    </Svg>
+  );
+}
+
 export function UserIcon(props: IconProps) {
   return (
     <Svg {...props}>
