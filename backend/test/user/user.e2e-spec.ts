@@ -229,6 +229,8 @@ describe('UserController (e2e)', () => {
           .expect((res) => {
             expect(res.body.data.weightKg).toBe(72.57);
             expect(res.body.data.weightUnit).toBe('lb');
+            // …and in lb for display, worked out by the server.
+            expect(res.body.data.weight).toBe(160);
           });
 
         // Read back from the DB: numeric column comes back as a number.

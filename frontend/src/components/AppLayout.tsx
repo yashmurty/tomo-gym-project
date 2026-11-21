@@ -41,7 +41,8 @@ export default function AppLayout() {
             <li key={to} className="flex-1">
               <NavLink
                 to={to}
-                end
+                // Log is "/" exactly; History stays lit on /history/<day>.
+                end={to === '/'}
                 className={({ isActive }) =>
                   `flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs ${
                     isActive ? 'text-accent font-medium' : 'text-muted'

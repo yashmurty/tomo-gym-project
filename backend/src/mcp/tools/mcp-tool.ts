@@ -2,7 +2,6 @@ import { Type } from '@nestjs/common';
 
 import { UndoScope } from '../../action-log/services/undo.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
-import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { EntryOrigin } from '../../workout/services/workout.service';
 
 // What a tool handler gets: who is acting and where the call came from.
@@ -14,9 +13,6 @@ export interface ToolContext {
   // Which earlier changes undo_last may reverse: the caller's previous chat
   // turns, or earlier calls made with the same access token.
   readonly undoScope: Readonly<UndoScope>;
-  // The user's display unit. Results echo weights in it next to kg, so
-  // neither the model nor the app ever converts.
-  readonly weightUnit: WEIGHT_UNIT;
 }
 
 export interface JsonSchemaObject {

@@ -60,14 +60,14 @@ describe('ToolRegistry', () => {
     ctx,
     origin: { source: ENTRY_SOURCE.CHAT, actionGroup: 'msg:1' },
     undoScope: { prefix: 'msg:', exclude: 'msg:1' },
-    weightUnit: WEIGHT_UNIT.KG,
   };
 
   const entryOutput = {
     id: 1,
     date: '2026-11-20',
     exercise: { name: 'Squat', nameJa: 'スクワット' },
-    sets: [{ setIndex: 1, reps: 5, weightKg: 100 }],
+    weightUnit: WEIGHT_UNIT.KG,
+    sets: [{ setIndex: 1, reps: 5, weightKg: 100, weight: 100 }],
     durationMin: null,
     distanceKm: null,
     speedKmh: null,
@@ -125,17 +125,18 @@ describe('ToolRegistry', () => {
     });
   });
 
-  it("echoes weights in the user's display unit next to kg", async () => {
+  it("passes on the service's weights in the user's unit, next to kg", async () => {
     workoutService.logEntry.mockResolvedValue({
       ...entryOutput,
-      sets: [{ setIndex: 1, reps: 5, weightKg: 61.23 }],
+      weightUnit: WEIGHT_UNIT.LB,
+      sets: [{ setIndex: 1, reps: 5, weightKg: 61.23, weight: 135 }],
     });
     workoutService.dayNumberFor.mockResolvedValue(3);
 
     const outcome = await registry.call(
       'log_entry',
       { exercise: 'bench', unit: 'lb', sets: [{ reps: 5, weight: 135 }] },
-      { ...toolCtx, weightUnit: WEIGHT_UNIT.LB },
+      toolCtx,
     );
 
     expect(outcome).toMatchObject({

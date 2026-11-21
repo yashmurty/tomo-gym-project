@@ -2,13 +2,16 @@ import { useI18n } from '../i18n/i18n-context';
 import type { EntryResult } from './entry-result';
 import { formatDay, formatNumber, formatSets } from './format';
 
-// What the agent saved, as the server returned it.
+// One saved entry, as the server returned it. `showDate` is off where the
+// page already says which day it is.
 export default function EntryCard({
   entry,
   updated = false,
+  showDate = true,
 }: {
   entry: EntryResult;
   updated?: boolean;
+  showDate?: boolean;
 }) {
   const { t, locale } = useI18n();
   const n = (v: number) => formatNumber(v, locale);
@@ -27,7 +30,7 @@ export default function EntryCard({
 
   const meta = [
     entry.dayNumber !== undefined && t('entry.day', { n: entry.dayNumber }),
-    formatDay(entry.date, locale),
+    showDate && formatDay(entry.date, locale),
     entry.estKcal !== null &&
       t(entry.kcalIsRough ? 'entry.kcalRough' : 'entry.kcal', {
         n: Math.round(entry.estKcal),
@@ -45,7 +48,9 @@ export default function EntryCard({
         )}
       </div>
       {details.length > 0 && <p className="text-sm">{details.join(' · ')}</p>}
-      <p className="text-muted text-xs">{meta.join(' · ')}</p>
+      {meta.length > 0 && (
+        <p className="text-muted text-xs">{meta.join(' · ')}</p>
+      )}
     </div>
   );
 }

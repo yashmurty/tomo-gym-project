@@ -39,6 +39,7 @@ export const PROFILE: UserOutput = {
   timezone: 'Asia/Tokyo',
   locale: 'en',
   weightKg: 60,
+  weight: 60,
   weightUnit: 'kg',
   isAccountDisabled: false,
   createdAt: '2026-11-01T00:00:00.000Z',

@@ -71,7 +71,7 @@ export class LogEntryTool implements McpTool<LogEntryInput> {
 
   constructor(private readonly workoutService: WorkoutService) {}
 
-  async run({ ctx, origin, weightUnit }: ToolContext, input: LogEntryInput) {
+  async run({ ctx, origin }: ToolContext, input: LogEntryInput) {
     assertUnitForWeights(input);
 
     const entry = await this.workoutService.logEntry(ctx, input, {
@@ -82,6 +82,6 @@ export class LogEntryTool implements McpTool<LogEntryInput> {
 
     // Echo the resolved date and day number so the model (and user) can see
     // exactly where the entry was filed (constitution rule 8).
-    return { ...compactEntry(entry, weightUnit), dayNumber };
+    return { ...compactEntry(entry), dayNumber };
   }
 }

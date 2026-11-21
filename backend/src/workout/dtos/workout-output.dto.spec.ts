@@ -3,6 +3,7 @@ import {
   MODALITY,
   MUSCLE_GROUP,
 } from '../../exercise/constants/exercise.constant';
+import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { ENTRY_SOURCE } from '../constants/workout.constant';
 import { Entry } from '../entities/entry.entity';
 import { toDayDetail, toDaySummary } from './workout-output.dto';
@@ -41,16 +42,41 @@ describe('workout output mappers', () => {
   } as unknown as Entry;
 
   it('detail view carries sets, calories and raw input', () => {
-    const day = toDayDetail('2026-11-20', 38, 'secret note', [entry]);
+    const day = toDayDetail(
+      '2026-11-20',
+      38,
+      'secret note',
+      [entry],
+      WEIGHT_UNIT.KG,
+    );
     expect(day.totalKcal).toBe(16.8);
     expect(day.entries[0].sets).toHaveLength(2);
     expect(day.entries[0].kcalIsRough).toBe(true);
     expect(day.entries[0].rawInput).toBe('2x10 @ 47kg lat pulldown');
   });
 
+  it("gives each set's load in the user's unit too, worked out on the server", () => {
+    const kg = toDayDetail('2026-11-20', 38, null, [entry], WEIGHT_UNIT.KG);
+    expect(kg.entries[0].weightUnit).toBe('kg');
+    expect(kg.entries[0].sets.map((s) => s.weight)).toEqual([50, 47]);
+
+    const lb = toDayDetail('2026-11-20', 38, null, [entry], WEIGHT_UNIT.LB);
+    expect(lb.entries[0].weightUnit).toBe('lb');
+    expect(lb.entries[0].sets.map((s) => [s.weightKg, s.weight])).toEqual([
+      [50, 110.2],
+      [47, 103.6],
+    ]);
+  });
+
   it('summary view exposes activity only (constitution rule 16)', () => {
     const summary = toDaySummary(
-      toDayDetail('2026-11-20', 38, 'secret note', [entry, entry]),
+      toDayDetail(
+        '2026-11-20',
+        38,
+        'secret note',
+        [entry, entry],
+        WEIGHT_UNIT.KG,
+      ),
     );
 
     expect(summary).toEqual({

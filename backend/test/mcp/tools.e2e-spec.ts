@@ -136,6 +136,7 @@ describe('MCP tools (e2e)', () => {
       locale: 'en',
       weightUnit: 'kg',
       weightKg: 72,
+      weight: 72,
       today: today(),
     });
   });
@@ -229,7 +230,9 @@ describe('MCP tools (e2e)', () => {
       const legPress = (await dayEntries(today())).find(
         (e: any) => e.id === ids['leg press'],
       );
-      expect(legPress.sets).toEqual([{ setIndex: 1, reps: 15, weightKg: 55 }]);
+      expect(legPress.sets).toEqual([
+        { setIndex: 1, reps: 15, weightKg: 55, weight: 55 },
+      ]);
     });
 
     it("undo_last from one client never reverses another client's changes", async () => {

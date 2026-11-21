@@ -64,6 +64,7 @@ describe('UserController', () => {
     locale: LOCALE.EN,
     weightKg: null,
     weightUnit: WEIGHT_UNIT.KG,
+    weight: null,
     createdAt: currentDate,
     updatedAt: currentDate,
   };

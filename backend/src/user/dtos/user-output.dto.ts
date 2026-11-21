@@ -1,9 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Expose } from 'class-transformer';
+import { Expose, Transform } from 'class-transformer';
 
 import { ROLE } from '../../auth/constants/role.constant';
 import { LOCALE } from '../../shared/constants/locale.constant';
-import { WEIGHT_UNIT } from '../../shared/units/weight';
+import { fromKg, WEIGHT_UNIT } from '../../shared/units/weight';
 
 // Full user shape, including email. Only ever returned to the user themself
 // or to an admin: email is never visible to other users (constitution rule
@@ -45,6 +45,20 @@ export class UserOutput {
   @Expose()
   @ApiProperty({ enum: WEIGHT_UNIT })
   weightUnit: WEIGHT_UNIT;
+
+  @Expose()
+  @Transform(({ obj }) =>
+    obj.weightKg === undefined || obj.weightKg === null
+      ? obj.weightKg
+      : fromKg(Number(obj.weightKg), obj.weightUnit),
+  )
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description:
+      'Body weight in `weightUnit`, worked out by the server (show this one); null until set.',
+  })
+  weight: number | null;
 
   @Expose()
   @ApiProperty()

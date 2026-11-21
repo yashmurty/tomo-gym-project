@@ -1,8 +1,8 @@
 import { useI18n } from '../i18n/i18n-context';
 import type { ToolEvent, TurnEvent } from './chat-api';
-import EntryCard from './EntryCard';
-import { dateOf, isEntryResult } from './entry-result';
-import { formatDay } from './format';
+import EntryCard from '../entries/EntryCard';
+import { dateOf, isEntryResult } from '../entries/entry-result';
+import { formatDay } from '../entries/format';
 import type { ChatTurn } from './useChat';
 
 type Props = {

@@ -6,6 +6,7 @@ import {
   toExerciseOutput,
 } from '../../exercise/dtos/exercise-output.dto';
 import { CalendarDate } from '../../shared/time/calendar-date';
+import { fromKg, WEIGHT_UNIT } from '../../shared/units/weight';
 import { ENTRY_SOURCE } from '../constants/workout.constant';
 import { Entry } from '../entities/entry.entity';
 
@@ -21,6 +22,14 @@ export class SetOutput {
 
   @ApiProperty({ type: Number, nullable: true })
   weightKg: number | null;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description:
+      "The same load in the entry's `weightUnit` (the user's), worked out by the server. Show this one.",
+  })
+  weight: number | null;
 }
 
 export class EntryOutput {
@@ -32,6 +41,12 @@ export class EntryOutput {
 
   @ApiProperty({ type: ExerciseOutput })
   exercise: ExerciseOutput;
+
+  @ApiProperty({
+    enum: WEIGHT_UNIT,
+    description: "The user's display unit: the unit of each set's `weight`.",
+  })
+  weightUnit: WEIGHT_UNIT;
 
   @ApiProperty({ type: [SetOutput] })
   sets: SetOutput[];
@@ -131,15 +146,22 @@ export class DaySummaryOutput {
   muscleGroups: MUSCLE_GROUP[];
 }
 
-export function toEntryOutput(entry: Entry): EntryOutput {
+// `weightUnit` is the user's display unit: each set carries its load in kg
+// and in that unit, so no client (app or model) ever converts (rule 9).
+export function toEntryOutput(
+  entry: Entry,
+  weightUnit: WEIGHT_UNIT,
+): EntryOutput {
   return {
     id: entry.id,
     date: entry.session!.date,
     exercise: toExerciseOutput(entry.exercise!),
+    weightUnit,
     sets: (entry.sets ?? []).map((s) => ({
       setIndex: s.setIndex,
       reps: s.reps,
       weightKg: s.weightKg,
+      weight: s.weightKg === null ? null : fromKg(s.weightKg, weightUnit),
     })),
     durationMin: entry.durationMin,
     distanceKm: entry.distanceKm,
@@ -161,8 +183,9 @@ export function toDayDetail(
   dayNumber: number | null,
   note: string | null,
   entries: Entry[],
+  weightUnit: WEIGHT_UNIT,
 ): DayDetailOutput {
-  const outputs = entries.map(toEntryOutput);
+  const outputs = entries.map((e) => toEntryOutput(e, weightUnit));
   const totalKcal = outputs.reduce((sum, e) => sum + (e.estKcal ?? 0), 0);
   return {
     date,

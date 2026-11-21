@@ -18,7 +18,7 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 6b | Signup gate, part 2 — email verification (SES); unverified users can't use the agent. Production signup stays closed until this ships | Not started (blocked on buying the domain) |
 | 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Done |
 | 8a | Frontend screens, part 1 — sign-in / sign-up, chat logger with streaming + undo (and the backend it needed) | Done |
-| 8b | Frontend screens, part 2 — history list/edit, profile (timezone, body weight, units, MCP access tokens) | Not started |
+| 8b | Frontend screens, part 2 — history list/edit, profile (timezone, body weight, units, MCP access tokens) | Done |
 | 9 | Deploy (blocked on buying the domain) — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
 | 10 | Tests + evals per feature (constitution rules 14–15) | Ongoing discipline, applied inside each step |
 | 11 | Pre-launch — landing page, privacy policy, ToS, SES sandbox exit | Not started |
@@ -299,6 +299,27 @@ The chat logger is the primary screen. Each confirmation shows the saved row(s) 
   - in Chromium at 320 px (iPhone SE) against the real backend: sign-up with a messy email and lb, log, Undo, reload (Undo state kept), Japanese, wrong password, sign back in. No horizontal scroll, and the composer stays one line in both languages.
 - **Rule 15:** the system prompt changed (quote `weight` / `weightUnit`), so the eval was re-run. It's the stub, so unchanged at 7/19; the first real run in 5b covers it.
 
+### 8b Done (2026-11-21)
+
+- **Backend:**
+  - **Weights in the user's unit moved into the service.** REST entries and days now carry each set's `weight` in the user's unit (plus `weightUnit`), and the profile carries `weight` for body weight, all worked out by the server.
+  - **Tools pass them through.** Tool results and `get_profile` reuse those values, replacing 8a's separate `ToolContext.weightUnit`. One conversion path, so the History screen, the chat cards and the model always agree.
+- **History:**
+  - training days newest first (Day N, date, exercise names in the user's language, ≈ kcal), paging back;
+  - a day page with its note (add, edit, clear) and entries showing what was typed;
+  - an inline editor for sets (reps and weight in the user's unit, add or remove) and cardio numbers (cleared → `null`), validated against the server's limits;
+  - delete with confirmation, and the day reloads so totals stay the server's.
+- **Profile:**
+  - weight unit (saves at once), body weight (in the user's unit; blank clears);
+  - time zone (every IANA zone the browser knows, keeping an aliased saved zone such as `Asia/Kolkata`, plus "use this device's");
+  - language and log out;
+  - **Connect other apps:** the MCP server URL, and personal access tokens created (shown once, with a `claude mcp add` example), listed (prefix, last used) and revoked.
+- **Verified:**
+  - backend: 238/238 unit and 140/140 e2e tests (new: lb loads on `/days` and the list, display weight on profile updates); stub eval 7/19.
+  - frontend: 135/135 tests; three deliberate bugs (edit without the unit, a repeated day when paging, a dropped aliased zone) each caught.
+  - in Chromium at 320 px against the real backend: sign up, log two entries, open the day, edit sets (kcal recomputed), add a note, delete an entry; switch to lb (60 kg → 132.3 lb, from the server); change the time zone and back; create a token, copy it, use it on `/mcp` (200, lists the tools), revoke it (401). No horizontal scroll in English or Japanese, and no page errors.
+- **Two accessibility bugs found and fixed:** an input's name swallowing its hint, unit and Save button.
+
 ## Steps 9–11 — detail
 
 Each gets its own sub-plan when we reach it. Notes so far:
@@ -360,6 +381,11 @@ Per-group visibility settings, notifications (so a reaction is only seen when th
 Edit the status column on the milestones table when a step flips state. Add a dated note under `## Changelog` when a scope or sequencing decision changes, so future-you (and future-Claude) can see *why* the plan shifted rather than just *that* it shifted. Newest entries first.
 
 ## Changelog
+
+- **2026-11-21** — **8b done; Step 8 complete.** History (days, day page, edit sets and cardio, delete, notes) and the full profile (unit, body weight, time zone, MCP access tokens). Weights in the user's unit are now computed in one place, the workout service's output mappers, and reused by REST, tool results and the profile. Remaining MVP steps:
+  - 5b (API key)
+  - 6b, 9 and 11 (domain)
+  - 12 (friend groups)
 
 - **2026-11-21** — **Step 8 split; 8a done.** Sign-in, sign-up and the chat logger (streamed replies, entry cards, undo that survives reload, retry, translated errors and limits). Backend additions it needed:
   - entry results carry weights in the user's unit, so neither model nor app converts (the prompt now says to quote them; eval re-run);

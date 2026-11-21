@@ -44,6 +44,7 @@ describe('AuthService', () => {
     locale: LOCALE.JA,
     weightKg: null,
     weightUnit: WEIGHT_UNIT.KG,
+    weight: null,
     createdAt: currentDate,
     updatedAt: currentDate,
     ...accessTokenClaims,
@@ -163,7 +164,8 @@ describe('AuthService', () => {
         weightKg: null,
         ageConfirmedAt: expect.any(Date),
       });
-      expect(result).toEqual(userOutput);
+      // RegisterOutput has no display weight; the profile does.
+      expect(result).toEqual({ ...userOutput, weight: undefined });
     });
 
     it('converts an optional signup weight to kg in the chosen unit', async () => {

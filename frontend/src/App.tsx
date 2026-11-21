@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import PublicLayout from './components/PublicLayout';
 import RequireAuth from './components/RequireAuth';
+import Day from './routes/Day';
 import History from './routes/History';
 import Log from './routes/Log';
 import Login from './routes/Login';
@@ -18,6 +19,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/" element={<Log />} />
           <Route path="/history" element={<History />} />
+          <Route path="/history/:date" element={<Day />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Route>

@@ -12,11 +12,14 @@ const profileOf = (user: {
   locale: string;
   weightUnit: string;
   weightKg: number | null;
+  weight: number | null;
 }) => ({
   timezone: user.timezone,
   locale: user.locale,
   weightUnit: user.weightUnit,
   weightKg: user.weightKg,
+  // In weightUnit, from the server: the figure to quote back.
+  weight: user.weight,
 });
 
 @Injectable()

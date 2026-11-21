@@ -2,7 +2,7 @@
 
 Vite + React + TypeScript SPA, mobile-first and installable as a PWA. Stack is pinned by [constitution.md](../constitution.md) (rules 2, 20, 23). Conventions are copied from denwa-alert's frontend; when in doubt, check how it does things there.
 
-**Status:** Steps 7 (scaffold) and 8a (sign-in, sign-up, the chat logger with streaming and undo) are done. History and the full profile are placeholders until Step 8b. See [../ROADMAP.md](../ROADMAP.md).
+**Status:** Steps 7 (scaffold), 8a (sign-in, sign-up, the chat logger) and 8b (history with edit/delete, the full profile) are done. Next on the frontend: friend-group screens (Step 12). See [../ROADMAP.md](../ROADMAP.md).
 
 ## Stack
 
@@ -30,7 +30,10 @@ frontend/
 │   ├── App.tsx               # route table
 │   ├── main.tsx              # BrowserRouter → AuthProvider → I18nProvider → App
 │   ├── index.css             # Tailwind + theme tokens
-│   ├── chat/                 # the chat logger: chat-api (SSE stream), useChat, TurnView, EntryCard, Composer, format
+│   ├── chat/                 # the chat logger: chat-api (SSE stream), useChat, TurnView, Composer
+│   ├── entries/              # shared by chat and history: EntryCard, entry-result (shapes + REST adapter), format
+│   ├── history/              # DayNote, EntryItem (view / edit / delete), EntryEditor
+│   ├── profile/              # WeightSettings, TimezoneSetting, AccessTokens
 │   ├── components/           # AppLayout (tab shell), PublicLayout, LanguageToggle, RequireAuth, form, icons
 │   ├── i18n/                 # en.ts, ja.ts, i18n.ts (helpers), i18n-context.tsx
 │   ├── lib/
@@ -48,14 +51,15 @@ frontend/
 
 ## Routes
 
-| Path        | Auth     | Layout       | Purpose                                                  |
-| ----------- | -------- | ------------ | -------------------------------------------------------- |
-| `/`         | required | AppLayout    | Log: the chat logger                                     |
-| `/history`  | required | AppLayout    | History (Step 8b; placeholder now)                       |
-| `/profile`  | required | AppLayout    | Language toggle + log out (more in Step 8b)              |
-| `/login`    | public   | PublicLayout | Sign in (`?from=` path to return to; `?session=expired`) |
-| `/register` | public   | PublicLayout | Sign up; signs in afterwards                             |
-| `*`         | —        | PublicLayout | NotFound                                                 |
+| Path             | Auth     | Layout       | Purpose                                                            |
+| ---------------- | -------- | ------------ | ------------------------------------------------------------------ |
+| `/`              | required | AppLayout    | Log: the chat logger                                               |
+| `/history`       | required | AppLayout    | Training days, newest first ("Show older days" pages back)         |
+| `/history/:date` | required | AppLayout    | One day: note, entries; edit sets / cardio, delete                 |
+| `/profile`       | required | AppLayout    | Language, unit, body weight, time zone, MCP access tokens, log out |
+| `/login`         | public   | PublicLayout | Sign in (`?from=` path to return to; `?session=expired`)           |
+| `/register`      | public   | PublicLayout | Sign up; signs in afterwards                                       |
+| `*`              | —        | PublicLayout | NotFound                                                           |
 
 `RequireAuth` redirects signed-out visitors to `/login?from=<path>`. `AppLayout` is the signed-in shell: a slim header, the page, and a fixed bottom tab bar (Log / History / Profile).
 
@@ -118,8 +122,22 @@ const updated = res.data.data; // outer .data = backend envelope { data, meta }
 - **The events** mirror `ChatEvent` in the backend's `agent/dtos/chat.dto.ts`. `done` and `error` carry `changes`, the number of saved changes that can still be undone; the Undo button shows only when that's above 0. A limit that stops a turn midway sends `error` with a `code` and keeps what was saved, still undoable.
 - **Retry** reuses the same key, so the server either runs the turn or replays it, never twice (constitution rule 11). It's offered when the stream was cut off, or when the server refused before storing anything (429, 5xx). A replay starts with `turn` (`replayed: true`), and the turn's events are reset then.
 - **History:** `GET /chat/messages` (newest page first; "Show earlier messages" pages back with `before`). It returns each turn with the same events plus `changes` and `undone`, so cards and Undo survive a reload.
-- **Cards:** `TurnView` renders write tools (log_entry / update_entry as `EntryCard`; move, note and delete as a line) and hides reads and tool errors (the reply covers them). Every number on a card comes from the tool result: weights in the user's unit (`weight` + `weightUnit`), kcal and day number. The app formats them (`format.ts`) but never computes them (constitution rule 9). In Japanese the card shows `exerciseJa`.
+- **Cards:** `TurnView` renders write tools (log_entry / update_entry as `EntryCard`; move, note and delete as a line) and hides reads and tool errors (the reply covers them). Every number on a card comes from the tool result: weights in the user's unit (`weight` + `weightUnit`), kcal and day number. The app formats them (`entries/format.ts`) but never computes them (constitution rule 9). In Japanese the card shows `exerciseJa`.
 - **Composer:** Enter sends and Shift+Enter adds a new line. Enter never sends while an IME is composing (Japanese input: `isComposing`, or keyCode 229 on Safari). It's pinned above the tab bar; the page scrolls to the very bottom on new content.
+
+## History and Profile
+
+- **Weights are the server's, in the user's unit.** `EntryOutput` sets carry `weight` in the entry's `weightUnit`, next to `weightKg`. `UserOutput.weight` is the body weight in `weightUnit`. Show and edit those. Edits send the same unit back (`unit: entry.weightUnit`; the profile's `weight` is in its `weightUnit`), and the server converts and range-checks (constitution rule 9). Never multiply by 2.2046 in the app.
+- **History** (`routes/History.tsx`) lists `GET /days` (30 at a time; `to` is inclusive, so the next page asks for one extra and drops the overlap). **A day** (`routes/Day.tsx`) shows its note (`PUT /days/:date/note`; empty clears it) and entries.
+  - `EntryEditor` edits sets (reps, weight; add or remove; at least one) and cardio numbers; a cleared cardio field is sent as `null`.
+  - It checks the server's limits so it can point at the field, but the server decides.
+  - After an edit or delete, the day reloads (totals and kcal come from the server).
+  - REST edits aren't in the agent action log, so a later chat Undo skips rows edited here (it reports "kept N edited since").
+- **Profile**: the unit toggle saves at once; body weight saves on Save, and blank clears it.
+  - **Time zone** is a `<select>` of `Intl.supportedValuesOf('timeZone')`, plus the saved value when the browser lists it under another name (the server stores zones exactly as sent: `Asia/Kolkata`, which ICU lists as `Asia/Calcutta`). It also offers "use this device's" when the two differ.
+  - **Access tokens** (`profile/AccessTokens.tsx`) list, create and revoke personal access tokens for external MCP clients. The token is shown once, with the server URL (`mcpServerUrl()` in `lib/config.ts`) and a `claude mcp add` example; the list only has the prefix.
+  - `CopyField` falls back to selecting the text where the clipboard API isn't available.
+- **Loading pattern:** fetch inside the effect and set state in `.then` (with a `current` flag for unmounts). Reload by bumping a counter in the effect's dependencies; React's lint rejects calling a state-setting loader straight from an effect.
 
 ## Auth
 

@@ -167,7 +167,7 @@ export class WorkoutService {
       return entry.id;
     });
 
-    return this.getEntryOutput(entryId);
+    return this.getEntryOutput(entryId, user.weightUnit);
   }
 
   // The day number for a date, or null if the day has no entries. Tools echo
@@ -259,7 +259,7 @@ export class WorkoutService {
       });
     });
 
-    return this.getEntryOutput(entry.id);
+    return this.getEntryOutput(entry.id, user.weightUnit);
   }
 
   // Soft delete, so a later undo can restore it.
@@ -329,7 +329,7 @@ export class WorkoutService {
       }
     });
 
-    return this.getDayForUser(user.id, date);
+    return this.getDayForUser(user, date);
   }
 
   async getDay(ctx: RequestContext, dateArg: string): Promise<DayDetailOutput> {
@@ -338,7 +338,7 @@ export class WorkoutService {
 
     const user = await this.userService.getSelfProfile(ctx);
     const date = resolveWorkoutDate(dateArg, user.timezone, this.clock.now());
-    return this.getDayForUser(user.id, date);
+    return this.getDayForUser(user, date);
   }
 
   // The user's training days (days with entries), newest first.
@@ -360,7 +360,8 @@ export class WorkoutService {
       }
     }
 
-    const userId = ctx.user!.id;
+    const user = await this.userService.getSelfProfile(ctx);
+    const userId = user.id;
     const sessions = await this.sessionRepository.findDaysWithEntries(
       userId,
       query.from,
@@ -381,6 +382,7 @@ export class WorkoutService {
         dayNumbers.get(s.date) ?? null,
         s.note,
         entries.filter((e) => e.sessionId === s.id),
+        user.weightUnit,
       ),
     );
   }
@@ -416,7 +418,7 @@ export class WorkoutService {
       });
     });
 
-    return this.getDayForUser(user.id, date);
+    return this.getDayForUser(user, date);
   }
 
   // Live entries matching the filter, newest day first. Feeds "what did I
@@ -452,7 +454,7 @@ export class WorkoutService {
       to,
       limit: Math.min(filter.limit ?? DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT),
     });
-    return entries.map(toEntryOutput);
+    return entries.map((e) => toEntryOutput(e, user.weightUnit));
   }
 
   // The most recent live entry of an exercise, or null.
@@ -467,11 +469,12 @@ export class WorkoutService {
   // ---- helpers ----
 
   private async getDayForUser(
-    userId: number,
+    user: { id: number; weightUnit: WEIGHT_UNIT },
     date: CalendarDate,
   ): Promise<DayDetailOutput> {
+    const userId = user.id;
     const session = await this.sessionRepository.findOneBy({ userId, date });
-    if (!session) return toDayDetail(date, null, null, []);
+    if (!session) return toDayDetail(date, null, null, [], user.weightUnit);
 
     const [entries, dayNumbers] = await Promise.all([
       this.entryRepository.findForSessions([session.id]),
@@ -482,12 +485,16 @@ export class WorkoutService {
       dayNumbers.get(date) ?? null,
       session.note,
       entries,
+      user.weightUnit,
     );
   }
 
-  private async getEntryOutput(entryId: number): Promise<EntryOutput> {
+  private async getEntryOutput(
+    entryId: number,
+    weightUnit: WEIGHT_UNIT,
+  ): Promise<EntryOutput> {
     const [entry] = await this.entryRepository.findWithDetails([entryId]);
-    return toEntryOutput(entry);
+    return toEntryOutput(entry, weightUnit);
   }
 
   private async getOwnedEntry(

@@ -21,6 +21,29 @@ vi.mock('./lib/generated/chat/chat', () => ({
   chatControllerUndo: vi.fn(),
 }));
 
+vi.mock('./lib/generated/days/days', () => ({
+  dayControllerList: vi.fn().mockResolvedValue({ data: { data: [] } }),
+  dayControllerGet: vi.fn().mockResolvedValue({
+    data: {
+      data: {
+        date: '2026-11-19',
+        dayNumber: 37,
+        note: null,
+        totalKcal: 0,
+        entries: [],
+      },
+    },
+  }),
+}));
+vi.mock(
+  './lib/generated/personal-access-tokens/personal-access-tokens',
+  () => ({
+    accessTokenControllerList: vi
+      .fn()
+      .mockResolvedValue({ data: { data: [] } }),
+  }),
+);
+
 describe('App routes', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -47,6 +70,18 @@ describe('App routes', () => {
       screen.getByRole('navigation', { name: 'Main' }),
     ).toBeInTheDocument();
     await waitFor(() => expect(getMyProfile).toHaveBeenCalled());
+  });
+
+  test('a day of history keeps the History tab lit', async () => {
+    signIn();
+    renderWithProviders(<App />, { route: '/history/2026-11-19' });
+    expect(
+      await screen.findByRole('heading', { name: 'Day 37' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'History' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 
   test('sign-up is public', () => {

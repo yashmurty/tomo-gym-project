@@ -99,9 +99,10 @@ describe('Workout (e2e)', () => {
         const entry = res.body.data;
         expect(entry.exercise.name).toBe('Lat pulldown');
         expect(entry.date).toBe(todayIn(TZ));
+        expect(entry.weightUnit).toBe('kg');
         expect(entry.sets).toEqual([
-          { setIndex: 1, reps: 10, weightKg: 47 },
-          { setIndex: 2, reps: 10, weightKg: 47 },
+          { setIndex: 1, reps: 10, weightKg: 47, weight: 47 },
+          { setIndex: 2, reps: 10, weightKg: 47, weight: 47 },
         ]);
         // 3.5 MET × 72 kg × (2 sets × 2 min) / 60
         expect(entry.estKcal).toBe(16.8);
@@ -119,6 +120,29 @@ describe('Workout (e2e)', () => {
         })
         .expect(HttpStatus.CREATED);
       expect(res.body.data.sets[0].weightKg).toBe(45.36);
+    });
+
+    it("shows loads in the user's unit, worked out by the server", async () => {
+      const bob = as(
+        await register('bob-pounds@example.com', { weightUnit: 'lb' }),
+      );
+      await bob
+        .post('/entries', {
+          exercise: 'bench press',
+          unit: 'lb',
+          sets: [{ reps: 5, weight: 135 }],
+        })
+        .expect(HttpStatus.CREATED);
+
+      const day = (await bob.get('/days/today').expect(HttpStatus.OK)).body
+        .data;
+      expect(day.entries[0].weightUnit).toBe('lb');
+      expect(day.entries[0].sets[0]).toMatchObject({
+        weightKg: 61.23,
+        weight: 135,
+      });
+      const [listed] = (await bob.get('/days').expect(HttpStatus.OK)).body.data;
+      expect(listed.entries[0].sets[0].weight).toBe(135);
     });
 
     it('ignores server-only fields a client tries to send', async () => {
