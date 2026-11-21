@@ -156,6 +156,7 @@ describe('Agent + MCP (e2e)', () => {
         'done',
       ]);
       turnId = events[0].turnId;
+      expect(events[3]).toEqual({ type: 'done', turnId, changes: 1 });
 
       const tool = events[1];
       expect(tool).toMatchObject({ name: 'log_entry', ok: true });
@@ -163,9 +164,10 @@ describe('Agent + MCP (e2e)', () => {
         exercise: 'Lat pulldown',
         date: todayIn(TZ),
         dayNumber: 1,
+        weightUnit: 'kg',
         sets: [
-          { reps: 10, weightKg: 47 },
-          { reps: 10, weightKg: 47 },
+          { reps: 10, weightKg: 47, weight: 47 },
+          { reps: 10, weightKg: 47, weight: 47 },
         ],
       });
       expect(events[2].text).toBe(
@@ -211,6 +213,7 @@ describe('Agent + MCP (e2e)', () => {
         'text',
         'done',
       ]);
+      expect(events[3]).toEqual({ type: 'done', turnId, changes: 1 });
       expect(llm.requests.length).toBe(callsBefore);
       expect((await today(aliceToken)).entries).toHaveLength(1);
     });
@@ -275,6 +278,116 @@ describe('Agent + MCP (e2e)', () => {
         .send({ text: 'hi', idempotencyKey: 'bad key!' })
         .expect(HttpStatus.BAD_REQUEST);
     });
+  });
+
+  describe('GET /chat/messages', () => {
+    let carolToken: string;
+    const lbInput = '3x5 @ 135 lb bench press';
+    const history = (token: string, query = '') =>
+      request(app.getHttpServer())
+        .get(`/chat/messages${query}`)
+        .set('Authorization', `Bearer ${token}`);
+
+    beforeAll(async () => {
+      const credentials = {
+        email: 'carol@example.com',
+        password: 'password-123',
+      };
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          name: 'carol',
+          timezone: TZ,
+          locale: 'en',
+          ageConfirmed: true,
+          weightUnit: 'lb',
+          ...credentials,
+        })
+        .expect(HttpStatus.CREATED);
+      const login = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send(credentials);
+      carolToken = login.body.data.accessToken;
+    });
+
+    it("echoes weights in the user's unit, in tool results and the reply", async () => {
+      const events = await chat(carolToken, lbInput);
+
+      const tool = events.find((e) => e.type === 'tool')!;
+      expect(tool.result).toMatchObject({
+        weightUnit: 'lb',
+        sets: [
+          { reps: 5, weightKg: 61.23, weight: 135 },
+          { reps: 5, weightKg: 61.23, weight: 135 },
+          { reps: 5, weightKg: 61.23, weight: 135 },
+        ],
+      });
+      expect(events.find((e) => e.type === 'text')!.text).toContain('@ 135 lb');
+      expect(events[events.length - 1]).toMatchObject({
+        type: 'done',
+        changes: 1,
+      });
+    });
+
+    it('returns the chat oldest first, with its events and undo state', async () => {
+      await chat(carolToken, 'hello');
+
+      const { turns, hasMore } = (
+        await history(carolToken).expect(HttpStatus.OK)
+      ).body.data;
+
+      expect(hasMore).toBe(false);
+      expect(turns.map((t: any) => t.text)).toEqual([lbInput, 'hello']);
+      expect(turns[0]).toMatchObject({
+        status: 'completed',
+        changes: 1,
+        undone: false,
+      });
+      expect(turns[0].events.map((e: any) => e.type)).toEqual(['tool', 'text']);
+      expect(turns[0].events[0]).toMatchObject({
+        type: 'tool',
+        name: 'log_entry',
+        ok: true,
+        result: { weightUnit: 'lb', exercise: 'Bench press' },
+      });
+      expect(turns[1]).toMatchObject({ changes: 0, undone: false });
+    });
+
+    it('shows a turn as undone after undo, so the state survives a reload', async () => {
+      const [first] = (await history(carolToken)).body.data.turns;
+      await request(app.getHttpServer())
+        .post(`/chat/messages/${first.id}/undo`)
+        .set('Authorization', `Bearer ${carolToken}`)
+        .expect(HttpStatus.CREATED);
+
+      const [after] = (await history(carolToken)).body.data.turns;
+      expect(after).toMatchObject({ id: first.id, changes: 0, undone: true });
+    });
+
+    it('pages back with before and limit', async () => {
+      const latest = (await history(carolToken, '?limit=1')).body.data;
+      expect(latest.turns.map((t: any) => t.text)).toEqual(['hello']);
+      expect(latest.hasMore).toBe(true);
+
+      const older = (
+        await history(carolToken, `?limit=1&before=${latest.turns[0].id}`)
+      ).body.data;
+      expect(older.turns.map((t: any) => t.text)).toEqual([lbInput]);
+      expect(older.hasMore).toBe(false);
+    });
+
+    it("never shows anyone else's chat", async () => {
+      const daveToken = await register('dave@example.com');
+      const { turns } = (await history(daveToken)).body.data;
+      expect(turns).toEqual([]);
+    });
+
+    it.each(['?limit=0', '?limit=51', '?before=abc'])(
+      'rejects %s',
+      async (query) => {
+        await history(carolToken, query).expect(HttpStatus.BAD_REQUEST);
+      },
+    );
   });
 
   it('refuses to guess the unit of a weight from an external client', async () => {

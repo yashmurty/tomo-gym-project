@@ -121,7 +121,8 @@ function confirmation(result: ToolResultBlockParam): string {
   try {
     const r = JSON.parse(raw);
     const what = r.sets?.length
-      ? `${r.sets.length}×${r.sets[0].reps}${r.sets[0].weightKg !== null ? ` @ ${r.sets[0].weightKg} kg` : ''}`
+      ? // Quotes the user's unit from the result, as the prompt asks a model to.
+        `${r.sets.length}×${r.sets[0].reps}${r.sets[0].weight !== null ? ` @ ${r.sets[0].weight} ${r.weightUnit}` : ''}`
       : `${r.durationMin} min`;
     return `Logged ${r.exercise}: ${what} · ${r.date} · Day ${r.dayNumber}.`;
   } catch {

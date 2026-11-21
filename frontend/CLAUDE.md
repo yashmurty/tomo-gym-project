@@ -2,7 +2,7 @@
 
 Vite + React + TypeScript SPA, mobile-first and installable as a PWA. Stack is pinned by [constitution.md](../constitution.md) (rules 2, 20, 23). Conventions are copied from denwa-alert's frontend; when in doubt, check how it does things there.
 
-**Status:** Step 7 (scaffold) is done: API client, auth plumbing, EN/JP catalogs, the signed-in tab shell, the PWA manifest and CI. The pages are placeholders until Step 8 (sign-in / sign-up, chat logger with streaming + undo, history, profile). See [../ROADMAP.md](../ROADMAP.md).
+**Status:** Steps 7 (scaffold) and 8a (sign-in, sign-up, the chat logger with streaming and undo) are done. History and the full profile are placeholders until Step 8b. See [../ROADMAP.md](../ROADMAP.md).
 
 ## Stack
 
@@ -14,7 +14,7 @@ Vite + React + TypeScript SPA, mobile-first and installable as a PWA. Stack is p
 - **ESLint 10** (flat config) + **Prettier**.
 - **Node 24 / npm 11.** The lockfile is written by npm 11; npm 10's `npm ci` rejects it. CI uses Node 24.22.3. npm 11 asks for install scripts to be reviewed: decisions live in `allowScripts` in `package.json`. After adding a dependency, run `npm install-scripts ls` and approve or deny anything new.
 
-No state-management library, no form library and no service worker yet. Add one only when a screen needs it (constitution rule 26).
+Forms use **react-hook-form + zod** (as in denwa-alert), with schemas built inside the component from `t()` so validation messages are translated. No state-management library and no service worker. Add one only when a screen needs it (constitution rule 26).
 
 ## Layout
 
@@ -30,12 +30,15 @@ frontend/
 │   ├── App.tsx               # route table
 │   ├── main.tsx              # BrowserRouter → AuthProvider → I18nProvider → App
 │   ├── index.css             # Tailwind + theme tokens
-│   ├── components/           # AppLayout (tab shell), PublicLayout, LanguageToggle, RequireAuth, icons
+│   ├── chat/                 # the chat logger: chat-api (SSE stream), useChat, TurnView, EntryCard, Composer, format
+│   ├── components/           # AppLayout (tab shell), PublicLayout, LanguageToggle, RequireAuth, form, icons
 │   ├── i18n/                 # en.ts, ja.ts, i18n.ts (helpers), i18n-context.tsx
 │   ├── lib/
 │   │   ├── config.ts         # API_BASE_URL
 │   │   ├── auth.ts           # token storage + refresh call
-│   │   ├── api-client.ts     # customFetch mutator used by every generated call
+│   │   ├── api-client.ts     # authorizedFetch (token + refresh) and the customFetch mutator
+│   │   ├── api-error.ts      # ApiError (status, code, Retry-After) + toApiError
+│   │   ├── describe-error.ts # ApiError / network failure → catalog key
 │   │   ├── auth-context.tsx  # user (from JWT), profile (GET /users/me), updateProfile
 │   │   └── generated/        # Orval output — never edit
 │   ├── routes/               # one component per route
@@ -45,13 +48,14 @@ frontend/
 
 ## Routes
 
-| Path       | Auth     | Layout       | Purpose                                      |
-| ---------- | -------- | ------------ | -------------------------------------------- |
-| `/`        | required | AppLayout    | Log (chat logger in Step 8; placeholder now) |
-| `/history` | required | AppLayout    | History (Step 8; placeholder now)            |
-| `/profile` | required | AppLayout    | Language toggle + log out (more in Step 8)   |
-| `/login`   | public   | PublicLayout | Sign in (placeholder until Step 8)           |
-| `*`        | —        | PublicLayout | NotFound                                     |
+| Path        | Auth     | Layout       | Purpose                                                  |
+| ----------- | -------- | ------------ | -------------------------------------------------------- |
+| `/`         | required | AppLayout    | Log: the chat logger                                     |
+| `/history`  | required | AppLayout    | History (Step 8b; placeholder now)                       |
+| `/profile`  | required | AppLayout    | Language toggle + log out (more in Step 8b)              |
+| `/login`    | public   | PublicLayout | Sign in (`?from=` path to return to; `?session=expired`) |
+| `/register` | public   | PublicLayout | Sign up; signs in afterwards                             |
+| `*`         | —        | PublicLayout | NotFound                                                 |
 
 `RequireAuth` redirects signed-out visitors to `/login?from=<path>`. `AppLayout` is the signed-in shell: a slim header, the page, and a fixed bottom tab bar (Log / History / Profile).
 
@@ -103,9 +107,19 @@ const updated = res.data.data; // outer .data = backend envelope { data, meta }
   - A 401 **without a token** (e.g. a wrong password at login) is a real answer and goes straight to the caller.
   - If the refresh token is rejected (401), it clears the tokens and sends the user to `/login?session=expired`.
   - If the refresh fails for a transient reason (offline, a 5xx during a deploy), the error propagates and **the tokens stay**, so a flaky gym connection never signs anyone out.
-- Don't hand-roll `fetch` for REST calls; use the generated functions. (Exception for Step 8: `POST /chat` streams SSE, which Orval's fetch client can't consume, so the chat screen needs a small streaming reader that goes through the same token and refresh logic.)
+- Don't hand-roll `fetch` for REST calls; use the generated functions. The one exception is `POST /chat`, which streams SSE that Orval's client can't read: `streamChat` (`src/chat/chat-api.ts`) reads it through `authorizedFetch`, so it gets the same token and refresh handling.
+- **Errors:** `customFetch` and `streamChat` throw `ApiError` (`status`, `code` from `error.details.code`, `retryAfterSec`). A network failure is the plain fetch error. **Never show `error.message` to users**: it's the backend's English. Map to a catalog key instead: screen-specific statuses first (a 401 at login, a 409 at sign-up), then `describeError()` for the rest (429 codes, 5xx, network).
 - **Base URL:** `API_BASE_URL` ([src/lib/config.ts](src/lib/config.ts)) is `VITE_API_BASE_URL`, or empty. Empty means same-origin: in dev, Vite proxies `/api` to the backend on `:3001`, so local dev needs no `.env` and no CORS. Production sets `VITE_API_BASE_URL` at build time (Step 9).
 - **Sync after backend API changes:** with the backend running, `npm run sync` (download `swagger.json`, then regenerate). Commit the new `swagger.json`. `npm run build` and `npm test` regenerate from the committed spec first.
+
+## Chat logger (`src/chat/`)
+
+- **Sending:** `useChat().send(text)` adds the turn at once, makes a fresh idempotency key (`newIdempotencyKey()`; `getRandomValues`, since `randomUUID` needs a secure context and fails on a phone over the LAN), and streams `turn → text/tool… → done | error` into it.
+- **The events** mirror `ChatEvent` in the backend's `agent/dtos/chat.dto.ts`. `done` and `error` carry `changes`, the number of saved changes that can still be undone; the Undo button shows only when that's above 0. A limit that stops a turn midway sends `error` with a `code` and keeps what was saved, still undoable.
+- **Retry** reuses the same key, so the server either runs the turn or replays it, never twice (constitution rule 11). It's offered when the stream was cut off, or when the server refused before storing anything (429, 5xx). A replay starts with `turn` (`replayed: true`), and the turn's events are reset then.
+- **History:** `GET /chat/messages` (newest page first; "Show earlier messages" pages back with `before`). It returns each turn with the same events plus `changes` and `undone`, so cards and Undo survive a reload.
+- **Cards:** `TurnView` renders write tools (log_entry / update_entry as `EntryCard`; move, note and delete as a line) and hides reads and tool errors (the reply covers them). Every number on a card comes from the tool result: weights in the user's unit (`weight` + `weightUnit`), kcal and day number. The app formats them (`format.ts`) but never computes them (constitution rule 9). In Japanese the card shows `exerciseJa`.
+- **Composer:** Enter sends and Shift+Enter adds a new line. Enter never sends while an IME is composing (Japanese input: `isComposing`, or keyCode 229 on Safari). It's pinned above the tab bar; the page scrolls to the very bottom on new content.
 
 ## Auth
 

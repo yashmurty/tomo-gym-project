@@ -109,6 +109,13 @@ describe('AuthController (e2e)', () => {
         .expect(HttpStatus.BAD_REQUEST);
     });
 
+    it('answers an email that is already registered with 409', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ ...registerInput, email: ' E2ETester@Random.com ' })
+        .expect(HttpStatus.CONFLICT);
+    });
+
     it('ignores a smuggled admin role', async () => {
       await request(app.getHttpServer())
         .post('/auth/register')
@@ -173,6 +180,13 @@ describe('AuthController (e2e)', () => {
       email: 'e2etester@random.com',
       password: '12345678',
     };
+
+    it('logs in whatever the case or surrounding spaces of the email', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ ...loginInput, email: ' E2ETester@Random.com' })
+        .expect(HttpStatus.OK);
+    });
 
     it('should successfully get new auth token using refresh token', async () => {
       const loginResponse = await request(app.getHttpServer())

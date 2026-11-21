@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-import { KG_PER_LB, toBodyWeightKg, toKg, WEIGHT_UNIT } from './weight';
+import { fromKg, KG_PER_LB, toBodyWeightKg, toKg, WEIGHT_UNIT } from './weight';
 
 describe('toKg', () => {
   it('passes kg through, rounded to 2 decimals', () => {
@@ -36,5 +36,17 @@ describe('toBodyWeightKg', () => {
     expect(() => toBodyWeightKg(401, WEIGHT_UNIT.KG)).toThrow(
       BadRequestException,
     );
+  });
+});
+
+describe('fromKg', () => {
+  it('passes kg through', () => {
+    expect(fromKg(61.23, WEIGHT_UNIT.KG)).toBe(61.23);
+  });
+
+  it('gives back what the user typed in lb after the kg round trip', () => {
+    for (const lb of [135, 47.5, 225, 2.5, 315.5]) {
+      expect(fromKg(toKg(lb, WEIGHT_UNIT.LB), WEIGHT_UNIT.LB)).toBe(lb);
+    }
   });
 });

@@ -1,18 +1,25 @@
 import { BadRequestException } from '@nestjs/common';
 
+import { fromKg, WEIGHT_UNIT } from '../../shared/units/weight';
 import { LIMITS } from '../../workout/constants/workout.constant';
 import { SetInput } from '../../workout/dtos/entry-input.dto';
 import { EntryOutput } from '../../workout/dtos/workout-output.dto';
 
 // The entry shape every tool returns: ids for follow-up calls, the resolved
 // date, and server-computed values the model must repeat, not recompute.
-export function compactEntry(entry: EntryOutput) {
+export function compactEntry(entry: EntryOutput, weightUnit: WEIGHT_UNIT) {
   return {
     entryId: entry.id,
     date: entry.date,
     exercise: entry.exercise.name,
     exerciseJa: entry.exercise.nameJa,
-    sets: entry.sets.map((s) => ({ reps: s.reps, weightKg: s.weightKg })),
+    // `weight` is in `weightUnit` (the user's), for quoting back to them.
+    weightUnit,
+    sets: entry.sets.map((s) => ({
+      reps: s.reps,
+      weightKg: s.weightKg,
+      weight: s.weightKg === null ? null : fromKg(s.weightKg, weightUnit),
+    })),
     durationMin: entry.durationMin,
     distanceKm: entry.distanceKm,
     speedKmh: entry.speedKmh,

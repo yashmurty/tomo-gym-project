@@ -1,6 +1,11 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
+import { QueryFailedError } from 'typeorm';
 
 import { ROLE } from '../../auth/constants/role.constant';
 import { LOCALE } from '../../shared/constants/locale.constant';
@@ -69,6 +74,26 @@ describe('UserService', () => {
       jest
         .spyOn(mockedRepository, 'save')
         .mockImplementation(async (input) => ({ id: 6, ...input }));
+    });
+
+    it('should answer a duplicate email with 409, not 500', async () => {
+      const duplicate = Object.assign(
+        new QueryFailedError('INSERT', [], new Error('duplicate key')),
+        { code: '23505' },
+      );
+      jest.spyOn(mockedRepository, 'save').mockRejectedValue(duplicate);
+
+      await expect(
+        service.createUser(ctx, {
+          name: user.name,
+          password: 'plain-password',
+          roles: [ROLE.USER],
+          isAccountDisabled: false,
+          email: 'taken@random.com',
+          timezone: 'Asia/Tokyo',
+          locale: LOCALE.EN,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
     });
 
     it('should encrypt password before saving', async () => {

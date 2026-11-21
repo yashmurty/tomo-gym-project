@@ -8,6 +8,7 @@ import Log from './routes/Log';
 import Login from './routes/Login';
 import NotFound from './routes/NotFound';
 import Profile from './routes/Profile';
+import Register from './routes/Register';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
       {/* Signed out, and anything unknown */}
       <Route element={<PublicLayout />}>
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

@@ -65,9 +65,10 @@ describe('StubLlmClient', () => {
               tool_use_id: toolUse.id,
               content: JSON.stringify({
                 exercise: 'Lat pulldown',
+                weightUnit: 'kg',
                 sets: [
-                  { reps: 10, weightKg: 47 },
-                  { reps: 10, weightKg: 47 },
+                  { reps: 10, weightKg: 47, weight: 47 },
+                  { reps: 10, weightKg: 47, weight: 47 },
                 ],
                 date: '2026-11-20',
                 dayNumber: 38,

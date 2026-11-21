@@ -14,6 +14,13 @@ vi.mock('./lib/generated/users/users', () => ({
   userControllerUpdateUser: vi.fn(),
 }));
 
+vi.mock('./lib/generated/chat/chat', () => ({
+  chatControllerHistory: vi
+    .fn()
+    .mockResolvedValue({ data: { data: { turns: [], hasMore: false } } }),
+  chatControllerUndo: vi.fn(),
+}));
+
 describe('App routes', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -38,6 +45,22 @@ describe('App routes', () => {
     expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
     expect(
       screen.getByRole('navigation', { name: 'Main' }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(getMyProfile).toHaveBeenCalled());
+  });
+
+  test('sign-up is public', () => {
+    renderWithProviders(<App />, { route: '/register' });
+    expect(
+      screen.getByRole('heading', { name: 'Create your account' }),
+    ).toBeInTheDocument();
+  });
+
+  test('a signed-in user visiting sign-in goes to the app', async () => {
+    signIn();
+    renderWithProviders(<App />, { route: '/login' });
+    expect(
+      screen.getByRole('heading', { name: 'Log a workout' }),
     ).toBeInTheDocument();
     await waitFor(() => expect(getMyProfile).toHaveBeenCalled());
   });

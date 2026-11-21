@@ -40,6 +40,13 @@ export interface UndoScope {
   exclude?: string;
 }
 
+// How much of an action group is still in place: `total` changes were
+// recorded, `active` of them not undone yet.
+export interface GroupState {
+  total: number;
+  active: number;
+}
+
 // Reverses agent / MCP changes (constitution rule 13). Each group is undone
 // newest-first in one transaction. A change is only reversed if the row
 // still looks exactly as the change left it; otherwise it was edited since
@@ -52,6 +59,31 @@ export class UndoService {
     private readonly logger: AppLogger,
   ) {
     this.logger.setContext(UndoService.name);
+  }
+
+  // Change counts per group, for showing an Undo button. Scoped to the
+  // caller's own actions by userId (from the JWT), so it needs no per-row
+  // ACL check; groups without actions are absent from the map.
+  async groupStates(
+    ctx: RequestContext,
+    groupKeys: string[],
+  ): Promise<Map<string, GroupState>> {
+    const states = new Map<string, GroupState>();
+    if (groupKeys.length === 0) return states;
+    const rows: { groupKey: string; total: number; active: number }[] =
+      await this.dataSource.query(
+        `SELECT "groupKey",
+                count(*)::int AS total,
+                count(*) FILTER (WHERE "undoneAt" IS NULL)::int AS active
+           FROM agent_actions
+          WHERE "userId" = $1 AND "groupKey" = ANY($2)
+          GROUP BY "groupKey"`,
+        [ctx.user!.id, groupKeys],
+      );
+    for (const row of rows) {
+      states.set(row.groupKey, { total: row.total, active: row.active });
+    }
+    return states;
   }
 
   async undoGroup(ctx: RequestContext, groupKey: string): Promise<UndoResult> {

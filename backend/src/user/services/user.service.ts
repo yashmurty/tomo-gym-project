@@ -1,6 +1,11 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { compare, hash } from 'bcrypt';
 import { plainToClass } from 'class-transformer';
+import { QueryFailedError } from 'typeorm';
 
 import { ActionOrigin, recordAction } from '../../action-log/action-log';
 import { snapshotProfile } from '../../action-log/snapshots';
@@ -15,6 +20,8 @@ import { UpdateUserInput } from '../dtos/user-update-input.dto';
 import { User } from '../entities/user.entity';
 import { UserRepository } from '../repositories/user.repository';
 import { UserAclService } from './user-acl.service';
+
+const PG_UNIQUE_VIOLATION = '23505';
 
 @Injectable()
 export class UserService {
@@ -36,7 +43,20 @@ export class UserService {
     user.password = await hash(input.password, 10);
 
     this.logger.log(ctx, `calling ${UserRepository.name}.saveUser`);
-    await this.repository.save(user);
+    try {
+      await this.repository.save(user);
+    } catch (err) {
+      // The unique constraint on email: a 409 the sign-up screen can explain,
+      // not a 500.
+      if (
+        err instanceof QueryFailedError &&
+        (err as QueryFailedError & { code?: string }).code ===
+          PG_UNIQUE_VIOLATION
+      ) {
+        throw new ConflictException('Email already registered');
+      }
+      throw err;
+    }
 
     return plainToClass(UserOutput, user, {
       excludeExtraneousValues: true,

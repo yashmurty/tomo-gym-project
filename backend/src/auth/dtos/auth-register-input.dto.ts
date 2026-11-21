@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   Equals,
   IsEmail,
@@ -14,6 +15,7 @@ import {
 import { LOCALE } from '../../shared/constants/locale.constant';
 import { IsIanaTimezone } from '../../shared/time/timezone';
 import { WEIGHT_UNIT } from '../../shared/units/weight';
+import { normalizeEmail } from '../../shared/utils/normalize-email';
 
 export class RegisterInput {
   @ApiProperty()
@@ -31,6 +33,10 @@ export class RegisterInput {
   @ApiProperty()
   @IsNotEmpty()
   @IsEmail()
+  // Trim + lower-case before validating: phone keyboards add both.
+  @Transform(({ value }) =>
+    typeof value === 'string' ? normalizeEmail(value) : value,
+  )
   @MaxLength(100)
   email: string;
 

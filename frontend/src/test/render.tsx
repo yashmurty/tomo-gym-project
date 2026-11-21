@@ -17,7 +17,7 @@ export function renderWithProviders(ui: ReactElement, { route = '/' } = {}) {
   );
 }
 
-function makeJwt(payload: object): string {
+export function makeJwt(payload: object): string {
   return `header.${btoa(JSON.stringify(payload))}.sig`;
 }
 

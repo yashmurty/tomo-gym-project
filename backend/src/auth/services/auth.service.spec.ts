@@ -153,7 +153,7 @@ describe('AuthService', () => {
 
       expect(mockedUserService.createUser).toBeCalledWith(ctx, {
         name: registerInput.name,
-        email: registerInput.email,
+        email: 'randomuser@random.com', // stored lower-cased
         password: registerInput.password,
         roles: [ROLE.USER],
         isAccountDisabled: false,

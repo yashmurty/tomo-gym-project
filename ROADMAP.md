@@ -17,7 +17,8 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 6a | Signup gate, part 1 — rate limits (chat, MCP, login, signup), per-user USD budgets, global daily cap, admin usage report, `SIGNUP_MODE` switch | Done |
 | 6b | Signup gate, part 2 — email verification (SES); unverified users can't use the agent. Production signup stays closed until this ships | Not started (blocked on buying the domain) |
 | 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Done |
-| 8 | Frontend screens — auth, chat logger with streaming + undo, history list/edit, profile | Not started |
+| 8a | Frontend screens, part 1 — sign-in / sign-up, chat logger with streaming + undo (and the backend it needed) | Done |
+| 8b | Frontend screens, part 2 — history list/edit, profile (timezone, body weight, units, MCP access tokens) | Not started |
 | 9 | Deploy (blocked on buying the domain) — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
 | 10 | Tests + evals per feature (constitution rules 14–15) | Ongoing discipline, applied inside each step |
 | 11 | Pre-launch — landing page, privacy policy, ToS, SES sandbox exit | Not started |
@@ -267,13 +268,41 @@ The frontend foundation, copied from denwa-alert's and stripped of its screens: 
   - in Chromium at iPhone SE size against the real backend through the dev proxy, there was no horizontal scroll, the signed-out redirect worked, and the toggle saved `locale: ja` on the server and survived a reload, with no console errors.
 - **Found for Step 8:**
   - ~~An expired access token at page load counts as signed out without trying the refresh token.~~ Resolved the same day: see the changelog entry on session length.
-  - `POST /chat` is SSE, which Orval's fetch client can't read, so the chat screen needs a small streaming reader that reuses the token and refresh logic.
+  - ~~`POST /chat` is SSE, which Orval's fetch client can't read.~~ Done in 8a: `streamChat` reads it through `authorizedFetch`.
 
-## Steps 8–11 — detail
+## Step 8 — detail
+
+The chat logger is the primary screen. Each confirmation shows the saved row(s) and an **Undo** button that reverts the whole turn via `agent_actions`. Undo stays available after a page reload. All UI strings go through the EN/JP catalogs; the language toggle updates `User.locale`.
+
+### Split into 8a / 8b *(decided 2026-11-21)*
+
+8a is sign-in, sign-up and the chat logger: the core loop, plus the backend pieces it turned out to need. 8b is history (day list, edit/delete) and the full profile.
+
+### 8a Done (2026-11-21)
+
+- **Backend, found while building:**
+  - **Weights in the user's unit.** Entry results only had kg. A pound user's card would have said "61.23 kg", and the model would have had to convert back to lb itself to reply, which constitution rule 9 forbids. `ToolContext.weightUnit` now makes every entry result carry `weight` + `weightUnit` next to `weightKg` (`fromKg`, lb to 0.1, so 135 lb → 61.23 kg → 135 lb). The system prompt says to quote them.
+  - **Change counts.** `done` and `error` events carry `changes`, the undoable changes the turn saved, so Undo shows only when there's something to undo, including after a limit stopped a turn midway.
+  - **`GET /chat/messages`**: the user's turns, paged back with `before`, with the same events as the stream (`turnEvents()`, shared with replay) plus `changes` / `undone`. That's what makes the chat and Undo survive a reload. Self-only (constitution rule 16).
+  - **Sign-up and login fixes.** A duplicate email returns **409** instead of a 500. Emails are trimmed and lower-cased at sign-up and login, because phone keyboards capitalise and add spaces.
+- **Frontend:**
+  - **Sign-in and sign-up** (react-hook-form + zod, translated validation). Sign-up sends the device's IANA time zone, the current UI language, the age confirmation and an optional body weight in kg or lb.
+  - **Errors** come through `ApiError` (status, code, Retry-After) and are mapped to catalog keys, never shown as the backend's English.
+  - **Chat** (`src/chat/`):
+    - an SSE reader over `authorizedFetch`, a fresh idempotency key per message;
+    - entry cards from tool results, Undo (with "kept N edited since"), Retry with the same key after a dropped connection or a refused request;
+    - limits explained per code, "Show earlier messages";
+    - a composer that never sends on Enter while a Japanese IME is composing.
+- **Verified:**
+  - backend: 235/235 unit and 139/139 e2e tests. New e2e tests cover lb round-trip in results and reply, `changes` on done and replay, history order / undo state / paging / isolation / bad params, 409 duplicate, case-insensitive login, and refusing disabled accounts at refresh.
+  - frontend: 112/112 tests; three deliberate bugs (IME, mid-turn changes, undone history) each caught.
+  - in Chromium at 320 px (iPhone SE) against the real backend: sign-up with a messy email and lb, log, Undo, reload (Undo state kept), Japanese, wrong password, sign back in. No horizontal scroll, and the composer stays one line in both languages.
+- **Rule 15:** the system prompt changed (quote `weight` / `weightUnit`), so the eval was re-run. It's the stub, so unchanged at 7/19; the first real run in 5b covers it.
+
+## Steps 9–11 — detail
 
 Each gets its own sub-plan when we reach it. Notes so far:
 
-- **8**: the chat logger is the primary screen. Each confirmation shows the parsed row(s) and an **Undo** button that reverts the whole turn via `agent_actions`. Undo stays available after a page reload. All UI strings go through EN/JP message catalogs from the first screen (no hardcoded copy); the language toggle updates `User.locale`.
 - **9**: follow denwa-alert's post-2026-11-09 pattern: a new database on the shared RDS, a container on the shared EC2 host behind its reverse proxy, own ECR + S3 + CloudFront + DNS in `infra/`. Read octirion-platform's `infra/CLAUDE.md` first. **Blocked on buying the domain** (TLS, CloudFront and SES identity all need it).
 - **11**: landing page, privacy policy and ToS ship in EN and JP. The privacy policy must disclose body weight as personal data and Anthropic as a processor of chat content.
 
@@ -331,6 +360,15 @@ Per-group visibility settings, notifications (so a reaction is only seen when th
 Edit the status column on the milestones table when a step flips state. Add a dated note under `## Changelog` when a scope or sequencing decision changes, so future-you (and future-Claude) can see *why* the plan shifted rather than just *that* it shifted. Newest entries first.
 
 ## Changelog
+
+- **2026-11-21** — **Step 8 split; 8a done.** Sign-in, sign-up and the chat logger (streamed replies, entry cards, undo that survives reload, retry, translated errors and limits). Backend additions it needed:
+  - entry results carry weights in the user's unit, so neither model nor app converts (the prompt now says to quote them; eval re-run);
+  - `changes` on `done` / `error`;
+  - `GET /chat/messages`;
+  - 409 for duplicate emails;
+  - emails normalised.
+
+  8b (history, profile) is next.
 
 - **2026-11-21** — **Session length; everything on Node 24.**
   - **Sessions:** access token 1 hour, refresh token **90 days**, renewed on every refresh, so users stay signed in as long as they open the app at least once every 90 days. A 1-month access token was considered and rejected: the backend trusts access tokens without a database check and logout is client-side, so a leaked token or a disabled account would keep working for a month; with a short access token users see the same thing.

@@ -5,6 +5,7 @@ import { UndoService } from '../../action-log/services/undo.service';
 import { ExerciseService } from '../../exercise/services/exercise.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
 import { Clock } from '../../shared/time/clock';
+import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { UserService } from '../../user/services/user.service';
 import { ENTRY_SOURCE } from '../../workout/constants/workout.constant';
 import { LogEntryInput } from '../../workout/dtos/entry-input.dto';
@@ -59,6 +60,7 @@ describe('ToolRegistry', () => {
     ctx,
     origin: { source: ENTRY_SOURCE.CHAT, actionGroup: 'msg:1' },
     undoScope: { prefix: 'msg:', exclude: 'msg:1' },
+    weightUnit: WEIGHT_UNIT.KG,
   };
 
   const entryOutput = {
@@ -120,6 +122,28 @@ describe('ToolRegistry', () => {
       source: ENTRY_SOURCE.CHAT,
       actionGroup: 'msg:1',
       tool: 'log_entry',
+    });
+  });
+
+  it("echoes weights in the user's display unit next to kg", async () => {
+    workoutService.logEntry.mockResolvedValue({
+      ...entryOutput,
+      sets: [{ setIndex: 1, reps: 5, weightKg: 61.23 }],
+    });
+    workoutService.dayNumberFor.mockResolvedValue(3);
+
+    const outcome = await registry.call(
+      'log_entry',
+      { exercise: 'bench', unit: 'lb', sets: [{ reps: 5, weight: 135 }] },
+      { ...toolCtx, weightUnit: WEIGHT_UNIT.LB },
+    );
+
+    expect(outcome).toMatchObject({
+      ok: true,
+      result: {
+        weightUnit: 'lb',
+        sets: [{ reps: 5, weightKg: 61.23, weight: 135 }],
+      },
     });
   });
 

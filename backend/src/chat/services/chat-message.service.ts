@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, LessThan, Repository } from 'typeorm';
 
 import {
   CHAT_ROLE,
@@ -76,6 +76,33 @@ export class ChatMessageService {
   // Messages of the turn (excluding the user message itself), oldest first.
   turnMessages(turnId: number): Promise<ChatMessage[]> {
     return this.messages.find({ where: { turnId }, order: { id: 'ASC' } });
+  }
+
+  // The user's turns (their own messages), newest first, optionally only
+  // those before a turn id (for paging back through the chat).
+  listTurns(
+    userId: number,
+    beforeId: number | undefined,
+    take: number,
+  ): Promise<ChatMessage[]> {
+    return this.messages.find({
+      where: {
+        userId,
+        role: CHAT_ROLE.USER,
+        ...(beforeId !== undefined ? { id: LessThan(beforeId) } : {}),
+      },
+      order: { id: 'DESC' },
+      take,
+    });
+  }
+
+  // Every reply and tool result of these turns, oldest first.
+  messagesOfTurns(turnIds: number[]): Promise<ChatMessage[]> {
+    if (turnIds.length === 0) return Promise.resolve([]);
+    return this.messages.find({
+      where: { turnId: In(turnIds) },
+      order: { id: 'ASC' },
+    });
   }
 
   // The last `limit` completed turns, oldest first, with all their messages.

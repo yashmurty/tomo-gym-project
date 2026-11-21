@@ -26,7 +26,13 @@ import { BudgetService } from '../../usage/services/budget.service';
 import { LlmUsageService } from '../../usage/services/llm-usage.service';
 import { RateLimitService } from '../../usage/services/rate-limit.service';
 import { UserService } from '../../user/services/user.service';
-import { ChatEvent, ChatInput } from '../dtos/chat.dto';
+import {
+  ChatEvent,
+  ChatHistoryOutput,
+  ChatHistoryQuery,
+  ChatInput,
+  TurnEvent,
+} from '../dtos/chat.dto';
 import {
   LLM_CLIENT,
   LlmClient,
@@ -40,6 +46,8 @@ import { contextBlock, SYSTEM_PROMPT } from './system-prompt';
 // 2: tool call, then confirmation).
 const MAX_STEPS = 6;
 const HISTORY_TURNS = 10;
+const HISTORY_PAGE = 20;
+const FAILED_MESSAGE = 'Something went wrong; nothing more was saved.';
 const PG_UNIQUE_VIOLATION = '23505';
 
 export type Emit = (event: ChatEvent) => void;
@@ -78,7 +86,7 @@ export class AgentService {
       userId,
       input.idempotencyKey,
     );
-    if (existing) return this.replay(existing, emit);
+    if (existing) return this.replay(ctx, existing, emit);
 
     let turn: ChatMessage;
     try {
@@ -97,7 +105,7 @@ export class AgentService {
           userId,
           input.idempotencyKey,
         );
-        if (winner) return this.replay(winner, emit);
+        if (winner) return this.replay(ctx, winner, emit);
       }
       throw err;
     }
@@ -106,21 +114,23 @@ export class AgentService {
     try {
       await this.runLoop(ctx, turn, emit);
       await this.chat.finishTurn(turn.id, TURN_STATUS.COMPLETED);
-      emit({ type: 'done', turnId: turn.id });
+      emit({
+        type: 'done',
+        turnId: turn.id,
+        changes: await this.changesIn(ctx, turn.id),
+      });
     } catch (err) {
       await this.chat.finishTurn(turn.id, TURN_STATUS.FAILED);
+      // What was saved before the failure stays, and stays undoable.
+      const changes = await this.changesIn(ctx, turn.id).catch(() => undefined);
       if (err instanceof QuotaExceededException) {
-        // Budget ran out mid-turn: what was saved so far stays (undoable).
-        emit({ type: 'error', code: err.code, message: err.message });
+        emit({ type: 'error', code: err.code, message: err.message, changes });
         return;
       }
       this.logger.error(ctx, `turn ${turn.id} failed`, {
         stack: (err as Error).stack,
       });
-      emit({
-        type: 'error',
-        message: 'Something went wrong; nothing more was saved.',
-      });
+      emit({ type: 'error', message: FAILED_MESSAGE, changes });
     }
   }
 
@@ -154,6 +164,59 @@ export class AgentService {
     const turn = await this.chat.findUserTurn(ctx.user!.id, turnId);
     if (!turn) throw new NotFoundException(`Message ${turnId} not found`);
     return this.undoService.undoGroup(ctx, `msg:${turn.id}`);
+  }
+
+  // The user's own chat, a page at a time, oldest first within the page:
+  // each turn with the events the stream sent and whether it can be undone,
+  // so the chat (and its Undo buttons) survive a reload. Scoped to the
+  // caller by the JWT; the transcript is never visible to anyone else
+  // (constitution rule 16).
+  async history(
+    ctx: RequestContext,
+    query: ChatHistoryQuery,
+  ): Promise<ChatHistoryOutput> {
+    this.logger.log(ctx, `${this.history.name} was called`);
+    const limit = query.limit ?? HISTORY_PAGE;
+    const newestFirst = await this.chat.listTurns(
+      ctx.user!.id,
+      query.before,
+      limit + 1,
+    );
+    const page = newestFirst.slice(0, limit).reverse();
+
+    const messages = await this.chat.messagesOfTurns(page.map((t) => t.id));
+    const byTurn = new Map<number, ChatMessage[]>();
+    for (const message of messages) {
+      const list = byTurn.get(message.turnId!) ?? [];
+      list.push(message);
+      byTurn.set(message.turnId!, list);
+    }
+    const states = await this.undoService.groupStates(
+      ctx,
+      page.map((t) => `msg:${t.id}`),
+    );
+
+    return {
+      hasMore: newestFirst.length > limit,
+      turns: page.map((turn) => {
+        const state = states.get(`msg:${turn.id}`);
+        return {
+          id: turn.id,
+          text: turn.text ?? '',
+          status: turn.status ?? TURN_STATUS.COMPLETED,
+          createdAt: turn.createdAt,
+          events: turnEvents(byTurn.get(turn.id) ?? []),
+          changes: state?.active ?? 0,
+          undone: !!state && state.total > 0 && state.active === 0,
+        };
+      }),
+    };
+  }
+
+  private async changesIn(ctx: RequestContext, turnId: number) {
+    const key = `msg:${turnId}`;
+    const states = await this.undoService.groupStates(ctx, [key]);
+    return states.get(key)?.active ?? 0;
   }
 
   private async runLoop(
@@ -246,7 +309,11 @@ export class AgentService {
     }
   }
 
-  private async replay(turn: ChatMessage, emit: Emit): Promise<void> {
+  private async replay(
+    ctx: RequestContext,
+    turn: ChatMessage,
+    emit: Emit,
+  ): Promise<void> {
     emit({ type: 'turn', turnId: turn.id, replayed: true });
     if (turn.status === TURN_STATUS.PENDING) {
       emit({
@@ -256,35 +323,43 @@ export class AgentService {
       return;
     }
 
-    const toolNames = new Map<string, string>();
-    for (const message of await this.chat.turnMessages(turn.id)) {
-      if (message.role === CHAT_ROLE.ASSISTANT) {
-        for (const block of message.content as LlmContentBlock[]) {
-          if (block.type === 'tool_use') toolNames.set(block.id, block.name);
-        }
-        if (message.text) emit({ type: 'text', text: message.text });
-      } else if (message.role === CHAT_ROLE.TOOL_RESULT) {
-        for (const result of message.content as ToolResultBlockParam[]) {
-          emit(
-            toolEvent(
-              toolNames.get(result.tool_use_id) ?? 'unknown',
-              typeof result.content === 'string' ? result.content : '',
-              result.is_error === true,
-            ),
-          );
-        }
-      }
+    for (const event of turnEvents(await this.chat.turnMessages(turn.id))) {
+      emit(event);
     }
 
+    const changes = await this.changesIn(ctx, turn.id);
     if (turn.status === TURN_STATUS.FAILED) {
-      emit({
-        type: 'error',
-        message: 'Something went wrong; nothing more was saved.',
-      });
+      emit({ type: 'error', message: FAILED_MESSAGE, changes });
     } else {
-      emit({ type: 'done', turnId: turn.id });
+      emit({ type: 'done', turnId: turn.id, changes });
     }
   }
+}
+
+// A stored turn's replies and tool calls as the events the stream sent, in
+// order. Used to replay a retried message and to show chat history.
+export function turnEvents(messages: ChatMessage[]): TurnEvent[] {
+  const events: TurnEvent[] = [];
+  const toolNames = new Map<string, string>();
+  for (const message of messages) {
+    if (message.role === CHAT_ROLE.ASSISTANT) {
+      for (const block of message.content as LlmContentBlock[]) {
+        if (block.type === 'tool_use') toolNames.set(block.id, block.name);
+      }
+      if (message.text) events.push({ type: 'text', text: message.text });
+    } else if (message.role === CHAT_ROLE.TOOL_RESULT) {
+      for (const result of message.content as ToolResultBlockParam[]) {
+        events.push(
+          toolEvent(
+            toolNames.get(result.tool_use_id) ?? 'unknown',
+            typeof result.content === 'string' ? result.content : '',
+            result.is_error === true,
+          ),
+        );
+      }
+    }
+  }
+  return events;
 }
 
 function isToolUse(block: LlmContentBlock): block is LlmToolUseBlock {
@@ -299,7 +374,7 @@ function textOf(content: LlmContentBlock[]): string {
     .trim();
 }
 
-function toolEvent(name: string, text: string, isError: boolean): ChatEvent {
+function toolEvent(name: string, text: string, isError: boolean): TurnEvent {
   if (isError) return { type: 'tool', name, ok: false, error: text };
   try {
     return { type: 'tool', name, ok: true, result: JSON.parse(text) };

@@ -10,6 +10,7 @@ import { plainToClass } from 'class-transformer';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
 import { toBodyWeightKg, WEIGHT_UNIT } from '../../shared/units/weight';
+import { normalizeEmail } from '../../shared/utils/normalize-email';
 import { UserOutput } from '../../user/dtos/user-output.dto';
 import { UserService } from '../../user/services/user.service';
 import { ROLE } from '../constants/role.constant';
@@ -41,7 +42,7 @@ export class AuthService {
     // The userService will throw Unauthorized in case of invalid email/password.
     const user = await this.userService.validateLoginCredentials(
       ctx,
-      email,
+      normalizeEmail(email),
       pass,
     );
 
@@ -76,7 +77,7 @@ export class AuthService {
     // anything signup doesn't allow, e.g. roles or isAccountDisabled.
     const registeredUser = await this.userService.createUser(ctx, {
       name: input.name,
-      email: input.email,
+      email: normalizeEmail(input.email),
       password: input.password,
       roles: [ROLE.USER],
       isAccountDisabled: false,

@@ -7,6 +7,7 @@ import { UndoScope } from '../../action-log/services/undo.service';
 import { ChatMessageService } from '../../chat/services/chat-message.service';
 import { REQUEST_ID_TOKEN_HEADER } from '../../shared/constants';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { WEIGHT_UNIT } from '../../shared/units/weight';
 import { UserService } from '../../user/services/user.service';
 import { ENTRY_SOURCE } from '../../workout/constants/workout.constant';
 import { EntryOrigin } from '../../workout/services/workout.service';
@@ -20,6 +21,8 @@ export interface McpCaller {
   // already bounded by the chat limits, so they aren't counted again.
   rateLimitKey?: string;
   ctx: RequestContext;
+  // The user's display unit, echoed next to kg in tool results.
+  weightUnit: WEIGHT_UNIT;
   // Fixed per request for turn tokens (the chat message); per tool call for
   // personal access tokens (see originForCall).
   originForCall: () => EntryOrigin;
@@ -53,7 +56,7 @@ export class McpAuthService {
       );
       if (!message) throw new UnauthorizedException('Unknown chat turn');
 
-      const ctx = await this.contextFor(req, turn.userId);
+      const { ctx, weightUnit } = await this.contextFor(req, turn.userId);
       const origin: EntryOrigin = {
         source: ENTRY_SOURCE.CHAT,
         rawInput: message.text,
@@ -62,6 +65,7 @@ export class McpAuthService {
       };
       return {
         ctx,
+        weightUnit,
         originForCall: () => origin,
         // undo_last from chat: the user's previous turns, never this one.
         undoScope: { prefix: 'msg:', exclude: origin.actionGroup },
@@ -70,9 +74,10 @@ export class McpAuthService {
 
     const pat = await this.accessTokens.verify(token);
     if (pat) {
-      const ctx = await this.contextFor(req, pat.userId);
+      const { ctx, weightUnit } = await this.contextFor(req, pat.userId);
       return {
         ctx,
+        weightUnit,
         // Each external tool call is its own undo group.
         originForCall: () => ({
           source: ENTRY_SOURCE.MCP,
@@ -93,7 +98,7 @@ export class McpAuthService {
   private async contextFor(
     req: Request,
     userId: number,
-  ): Promise<RequestContext> {
+  ): Promise<{ ctx: RequestContext; weightUnit: WEIGHT_UNIT }> {
     const user = await this.userService.findById(new RequestContext(), userId);
     if (!user?.id || user.isAccountDisabled) {
       throw new UnauthorizedException('Account unavailable');
@@ -104,6 +109,6 @@ export class McpAuthService {
     ctx.url = req.url;
     ctx.ip = req.ip;
     ctx.user = { id: user.id, email: user.email, roles: user.roles };
-    return ctx;
+    return { ctx, weightUnit: user.weightUnit };
   }
 }

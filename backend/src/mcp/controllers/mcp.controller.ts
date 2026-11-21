@@ -106,6 +106,7 @@ export class McpController {
           ctx: caller.ctx,
           origin: caller.originForCall(),
           undoScope: caller.undoScope,
+          weightUnit: caller.weightUnit,
         },
       );
       if (!outcome.ok) {

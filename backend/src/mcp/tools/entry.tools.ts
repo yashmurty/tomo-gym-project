@@ -34,14 +34,14 @@ export class GetDayTool implements McpTool<GetDayInput> {
 
   constructor(private readonly workoutService: WorkoutService) {}
 
-  async run({ ctx }: ToolContext, input: GetDayInput) {
+  async run({ ctx, weightUnit }: ToolContext, input: GetDayInput) {
     const day = await this.workoutService.getDay(ctx, input.date ?? 'today');
     return {
       date: day.date,
       dayNumber: day.dayNumber,
       note: day.note,
       totalKcal: day.totalKcal,
-      entries: day.entries.map(compactEntry),
+      entries: day.entries.map((e) => compactEntry(e, weightUnit)),
     };
   }
 }
@@ -60,9 +60,11 @@ export class GetLastEntryTool implements McpTool<ExerciseRefInput> {
 
   constructor(private readonly workoutService: WorkoutService) {}
 
-  async run({ ctx }: ToolContext, input: ExerciseRefInput) {
+  async run({ ctx, weightUnit }: ToolContext, input: ExerciseRefInput) {
     const last = await this.workoutService.getLastEntry(ctx, input);
-    return last ? { found: true, entry: compactEntry(last) } : { found: false };
+    return last
+      ? { found: true, entry: compactEntry(last, weightUnit) }
+      : { found: false };
   }
 }
 
@@ -104,9 +106,12 @@ export class QueryHistoryTool implements McpTool<QueryHistoryInput> {
 
   constructor(private readonly workoutService: WorkoutService) {}
 
-  async run({ ctx }: ToolContext, input: QueryHistoryInput) {
+  async run({ ctx, weightUnit }: ToolContext, input: QueryHistoryInput) {
     const entries = await this.workoutService.queryHistory(ctx, input);
-    return { count: entries.length, entries: entries.map(compactEntry) };
+    return {
+      count: entries.length,
+      entries: entries.map((e) => compactEntry(e, weightUnit)),
+    };
   }
 }
 
@@ -148,7 +153,7 @@ export class UpdateEntryTool implements McpTool<UpdateEntryToolInput> {
       toolCtx.ctx,
       entry.date,
     );
-    return { ...compactEntry(entry), dayNumber };
+    return { ...compactEntry(entry, toolCtx.weightUnit), dayNumber };
   }
 }
 
@@ -209,7 +214,7 @@ export class MoveEntriesTool implements McpTool<MoveEntriesInput> {
     return {
       date: day.date,
       dayNumber: day.dayNumber,
-      entries: day.entries.map(compactEntry),
+      entries: day.entries.map((e) => compactEntry(e, toolCtx.weightUnit)),
     };
   }
 }

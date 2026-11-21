@@ -135,7 +135,8 @@ Session length: `JWT_ACCESS_TOKEN_EXP_IN_SEC=3600` (1 hour) and `JWT_REFRESH_TOK
 ## Shared helpers (use these, don't re-implement)
 
 - `src/shared/time/timezone.ts`: `isValidTimezone()` and the `@IsIanaTimezone()` validator. Timezones are validated, never canonicalised (ICU's canonical form varies by Node version, e.g. `Asia/Kolkata` → `Asia/Calcutta`). Fixed offsets like `+09:00` are rejected because they ignore DST.
-- `src/shared/units/weight.ts`: `WEIGHT_UNIT`, `toKg()` (exact lb factor, 2 decimals) and `toBodyWeightKg()` (also range-checks 20–400 kg *after* conversion, throwing `BadRequestException`). Unit conversion is server code, never the LLM's (constitution rule 9).
+- `src/shared/units/weight.ts`: `WEIGHT_UNIT`, `toKg()` (exact lb factor, 2 decimals), `fromKg()` (back to the user's unit; lb to 0.1, which recovers what was typed) and `toBodyWeightKg()` (also range-checks 20–400 kg *after* conversion, throwing `BadRequestException`). Unit conversion is server code, never the LLM's or the app's (constitution rule 9).
+- `src/shared/utils/normalize-email.ts`: trim + lower-case. Applied at sign-up and login (in `AuthService`, since login's guard runs before pipes, and in the DTOs). Duplicate emails are a 409 (`UserService.createUser`), not a 500.
 - `src/shared/typeorm/numeric.transformer.ts`: put `transformer: numericTransformer` on every `numeric` column, or the pg driver hands back strings.
 - `src/shared/constants/locale.constant.ts`: `LOCALE` (`en` | `ja`).
 - `src/shared/time/calendar-date.ts`: `CalendarDate` ('YYYY-MM-DD' string), `todayIn(tz)`, `addDays()` (DST-proof), `resolveWorkoutDate()` (`today` / `yesterday` / date, rejecting future and impossible dates). Workout days are calendar dates, never timestamps.
@@ -153,13 +154,15 @@ Session length: `JWT_ACCESS_TOKEN_EXP_IN_SEC=3600` (1 hour) and `JWT_REFRESH_TOK
   4. Add it to the schema-parity unit test.
 
   The ESLint rule on `src/mcp/tools/**` fails the build if a tool imports `typeorm` or a repository.
-- **Server-side context only:** tools receive `ToolContext { ctx, origin }` (user, source, `rawInput`, `sourceMessageId`, `actionGroup`). Never accept any of these as tool arguments.
+- **Server-side context only:** tools receive `ToolContext { ctx, origin, undoScope, weightUnit }` (user, source, `rawInput`, `sourceMessageId`, `actionGroup`, the user's display unit). Never accept any of these as tool arguments.
+- **Entry results** (`compactEntry`) give each set's weight in kg *and* in the user's unit (`weight`, `weightUnit`). The prompt tells the model to quote those, so neither the model nor the app ever converts.
 - **Writes from tools must be undoable:** pass `origin` (at least `actionGroup` + `tool`) to the service. In its own transaction the service takes a snapshot before, writes, takes a snapshot after, and calls `recordAction()` (`src/action-log/action-log.ts`; snapshot helpers in `snapshots.ts`). `UndoService` reverses a group only if each row still matches its `after` snapshot, so undo never overwrites a later edit. A new kind of write needs a snapshot function and a reversal case in `UndoService.reverse()`.
 - **Tools today:** `log_entry`, `get_day`, `get_last_entry`, `query_history`, `update_entry`, `delete_entry`, `move_entries`, `set_day_note`, `create_exercise`, `add_exercise_alias`, `get_profile`, `update_profile`, `undo_last`. Tools without arguments omit `inputDto`, and any argument sent to them is rejected.
 - **Parsing eval:** `npm run eval:parsing [-- --only=case-id,…]` (cases in `evals/parsing/cases.ts`, graded on rows written). Re-run it after any change to the system prompt, a tool description or the model (constitution rule 15). It costs money with a real model; it isn't in CI.
 - **Model provider:** `LLM_PROVIDER` (`stub` only for now; refused in production), `LLM_MODEL`, `LLM_MAX_TOKENS`. The stub (`src/agent/llm/stub-llm-client.ts`) is a test double, not the product parser.
 - **`MCP_INTERNAL_URL`:** where the agent reaches `/mcp` (default `http://localhost:$APP_PORT/api/v1/mcp`). E2E tests listen on a real port and override `McpEndpoint`.
 - **Per-request facts** (now, timezone, profile) go in the `<context>` block of the *current* user message only (`system-prompt.ts`). Keep `SYSTEM_PROMPT` byte-stable for caching.
+- **The chat API:** `POST /chat` streams `turn`, `text`, `tool`, then `done` or `error`, which carry `changes` (undoable changes the turn saved, from `UndoService.groupStates`). `GET /chat/messages?before=&limit=` returns the user's turns, newest page first and oldest first within a page, with the same events (`turnEvents()`, shared with replay), `changes` and `undone`. `POST /chat/messages/:id/undo` undoes a turn.
 
 ## Signup gate: limits and budgets (Step 6a)
 

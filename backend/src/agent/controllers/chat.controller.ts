@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Get,
   HttpStatus,
   Param,
   ParseIntPipe,
   Post,
+  Query,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -19,10 +21,18 @@ import { Response } from 'express';
 
 import { UndoResult } from '../../action-log/services/undo.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import { BaseApiResponse } from '../../shared/dtos/base-api-response.dto';
+import {
+  BaseApiResponse,
+  SwaggerBaseApiResponse,
+} from '../../shared/dtos/base-api-response.dto';
 import { ReqContext } from '../../shared/request-context/req-context.decorator';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
-import { ChatEvent, ChatInput } from '../dtos/chat.dto';
+import {
+  ChatEvent,
+  ChatHistoryOutput,
+  ChatHistoryQuery,
+  ChatInput,
+} from '../dtos/chat.dto';
 import { AgentService } from '../services/agent.service';
 
 @ApiTags('chat')
@@ -67,6 +77,23 @@ export class ChatController {
       res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     await this.agent.handleTurn(ctx, input, emit);
     res.end();
+  }
+
+  @Get('messages')
+  @ApiOperation({
+    summary: 'Your chat so far, a page at a time (newest page first)',
+    description:
+      'Each turn carries the text / tool events the stream sent, and how many of its changes can still be undone.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    type: SwaggerBaseApiResponse(ChatHistoryOutput),
+  })
+  async history(
+    @ReqContext() ctx: RequestContext,
+    @Query() query: ChatHistoryQuery,
+  ): Promise<BaseApiResponse<ChatHistoryOutput>> {
+    return { data: await this.agent.history(ctx, query), meta: {} };
   }
 
   @Post('messages/:id/undo')
