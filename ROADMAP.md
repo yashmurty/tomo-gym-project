@@ -335,8 +335,8 @@ Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5)
 
 - `Group`: name (≤ 60 chars), `ownerUserId`, `inviteToken` (random 128-bit, URL-safe, unique; stored as is so any member can copy the link again; rotating replaces it), `inviteEnabled`.
 - `GroupMembership`: `(groupId, userId)` unique, role `owner` | `member`, `joinedAt`.
-- `Reaction`: `(groupId, sessionId, userId, emoji)` unique, with emoji limited to 💪 🔥 👏 🎉 😮.
-- `Comment`: `groupId`, `sessionId`, `authorUserId`, body (≤ 280 chars), `deletedAt`.
+- `Reaction`: `groupId`, `userId`, `emoji` (limited to 💪 🔥 👏 🎉 😮), and a target that is **either a training day (`sessionId`) or a comment (`commentId`)**. The two are nullable FKs with a CHECK that exactly one is set; unique per (target, user, emoji). A comment's reactions go when the comment is deleted.
+- `Comment`: `groupId`, `sessionId`, `authorUserId`, body (≤ 280 chars), `editedAt`, `deletedAt`.
 - `User.workoutVisibility`: `activity` (default) | `full`, one setting per user across all their groups.
 
 ### Locked design decisions
@@ -353,7 +353,7 @@ Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5)
 
 ### Plan *(agreed 2026-11-21)*
 
-- **Split:** **12a**: groups and the feed (create; invite link + join page; members: remove, leave, transfer ownership, delete group; the visibility setting; the feed at both levels). **12b**: reactions, comments (moderation + rate limit) and leaderboards. Each ships with its backend and its screens.
+- **Split:** **12a**: groups and the feed (create; invite link + join page; members: remove, leave, transfer ownership, delete group; the visibility setting; the feed at both levels). **12b**: reactions (on training days and on comments), comments (edit, moderation, rate limit) and leaderboards. Each ships with its backend and its screens.
 - **Screens:**
   - a fourth tab, **Groups** (Log · History · Groups · Profile);
   - a group page with Feed, Leaderboard and Members sections, plus invite and member controls;
@@ -364,8 +364,11 @@ Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5)
   - **Never shared at either level:** calories (derived from body weight, which is private), the day note, and raw chat input.
 - **The visibility setting** lives in Profile. The join page states it before the Join button, together with what joining shares.
 - **Weeks start on Monday** for everyone (the ISO and Japanese convention), each in the member's own timezone.
-- **Reactions:** tap to toggle; per-emoji counts plus "you reacted".
-- **Comments:** oldest first, delete but no edit. Rate limit: 10 per minute and 100 per day per user.
+- **Reactions** on training days **and on comments**: tap to toggle; per-emoji counts plus "you reacted". You may react to your own day or comment.
+- **Comments:** oldest first.
+  - **The author can edit** while still a member: same 280-char cap, an "edited" label, no history, no time limit.
+  - The author or the owner can delete; the owner can delete any comment but never edit someone else's.
+  - Rate limit: 10 per minute and 100 per day per user, posts and edits together.
 - **Leaderboard:** days this week, days this month, current streak in weeks, and a "trained today" dot.
 - **Invite links:** any member can copy and share the link; only the owner can rotate it, disable it, or remove members. A leaked link only lets someone join that group, and rotating stops it.
 - **New members' whole history** shows in the group feed at their visibility level. Chosen over "from the join date", so the join page says plainly what joining shares.
@@ -403,6 +406,9 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-21** — **Step 12: comment editing and reactions on comments added.**
+  - Authors can edit their own comments (an "edited" label, no history; edits share the comment rate limit).
+  - Reactions can target a comment as well as a training day: one table, exactly one target. Both are in 12b.
 - **2026-11-21** — **Step 12 planned.** Split into 12a (groups, invite links, members, visibility setting, feed) and 12b (reactions, comments, leaderboards).
   - **Decided:** the invite link is re-showable rather than hashed, and any member can share it; new members' whole history shows in the feed (the join page says so); people who leave keep their comments as "Former member".
   - **Also settled:** the feed never shares calories, notes or raw chat input, even at full details; weights in full details are in the viewer's unit, from the server; weeks start on Monday; a Groups tab; and the fixed emoji set.
