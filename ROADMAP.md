@@ -331,11 +331,11 @@ Each gets its own sub-plan when we reach it. Notes so far:
 
 Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5) and the core screens (Step 8), and shipped before launch. Backend and screens land together in this step.
 
-### Entities (sketch; settle when starting)
+### Entities *(settled 2026-11-21)*
 
-- `Group`: name, `ownerUserId`, hashed invite token, `inviteEnabled`.
+- `Group`: name (≤ 60 chars), `ownerUserId`, `inviteToken` (random 128-bit, URL-safe, unique; stored as is so any member can copy the link again; rotating replaces it), `inviteEnabled`.
 - `GroupMembership`: `(groupId, userId)` unique, role `owner` | `member`, `joinedAt`.
-- `Reaction`: `(groupId, sessionId, userId, emoji)` unique, with emoji limited to a fixed set.
+- `Reaction`: `(groupId, sessionId, userId, emoji)` unique, with emoji limited to 💪 🔥 👏 🎉 😮.
 - `Comment`: `groupId`, `sessionId`, `authorUserId`, body (≤ 280 chars), `deletedAt`.
 - `User.workoutVisibility`: `activity` (default) | `full`, one setting per user across all their groups.
 
@@ -350,6 +350,27 @@ Friend groups, added 2026-11-19. Built after the core logging loop (Steps 3–5)
 - **Time boundaries are per member.** "Trained today" and week boundaries use each member's own timezone (constitution rule 8).
 - **Caps:** ≤ 50 members per group, ≤ 10 groups per user.
 - **Reuse denwa-alert's tenancy code.** Its `Organization` + `Membership` + `OrgScopedGuard` / `OrgAdminGuard` + ACL patterns map onto `Group` + `GroupMembership`, minus denwa's Team layer, email invitations and join requests. Copy them from the denwa repo at this step; Step 1 still strips them.
+
+### Plan *(agreed 2026-11-21)*
+
+- **Split:** **12a**: groups and the feed (create; invite link + join page; members: remove, leave, transfer ownership, delete group; the visibility setting; the feed at both levels). **12b**: reactions, comments (moderation + rate limit) and leaderboards. Each ships with its backend and its screens.
+- **Screens:**
+  - a fourth tab, **Groups** (Log · History · Groups · Profile);
+  - a group page with Feed, Leaderboard and Members sections, plus invite and member controls;
+  - `/join/:token`, a join page behind sign-in.
+- **Feed item = one member's training day**, newest first, paged, members' **whole history** (decided below).
+  - **Activity-only** uses the existing `DaySummaryOutput`: day, Day N, exercises, muscle groups.
+  - **Full details** uses its own DTO, adding sets, reps, weights (in the *viewer's* unit, converted by the server) and cardio numbers.
+  - **Never shared at either level:** calories (derived from body weight, which is private), the day note, and raw chat input.
+- **The visibility setting** lives in Profile. The join page states it before the Join button, together with what joining shares.
+- **Weeks start on Monday** for everyone (the ISO and Japanese convention), each in the member's own timezone.
+- **Reactions:** tap to toggle; per-emoji counts plus "you reacted".
+- **Comments:** oldest first, delete but no edit. Rate limit: 10 per minute and 100 per day per user.
+- **Leaderboard:** days this week, days this month, current streak in weeks, and a "trained today" dot.
+- **Invite links:** any member can copy and share the link; only the owner can rotate it, disable it, or remove members. A leaked link only lets someone join that group, and rotating stops it.
+- **New members' whole history** shows in the group feed at their visibility level. Chosen over "from the join date", so the join page says plainly what joining shares.
+- **Leaving or removal:** the member's own days leave the feed at once. Comments and reactions they made stay, attributed to **"Former member"** (their name is no longer shown), and reactions stay counted. The owner can still delete those comments; the former member can't unless they rejoin.
+- **Unchanged:** the agent never reads friends' data or acts in groups (constitution rule 10). Friends' views are built in the service layer per visibility level, with separate DTOs (rule 16).
 
 ### Out of scope for 12
 
@@ -381,6 +402,10 @@ Per-group visibility settings, notifications (so a reaction is only seen when th
 Edit the status column on the milestones table when a step flips state. Add a dated note under `## Changelog` when a scope or sequencing decision changes, so future-you (and future-Claude) can see *why* the plan shifted rather than just *that* it shifted. Newest entries first.
 
 ## Changelog
+
+- **2026-11-21** — **Step 12 planned.** Split into 12a (groups, invite links, members, visibility setting, feed) and 12b (reactions, comments, leaderboards).
+  - **Decided:** the invite link is re-showable rather than hashed, and any member can share it; new members' whole history shows in the feed (the join page says so); people who leave keep their comments as "Former member".
+  - **Also settled:** the feed never shares calories, notes or raw chat input, even at full details; weights in full details are in the viewer's unit, from the server; weeks start on Monday; a Groups tab; and the fixed emoji set.
 
 - **2026-11-21** — **8b done; Step 8 complete.** History (days, day page, edit sets and cardio, delete, notes) and the full profile (unit, body weight, time zone, MCP access tokens). Weights in the user's unit are now computed in one place, the workout service's output mappers, and reused by REST, tool results and the profile. Remaining MVP steps:
   - 5b (API key)
