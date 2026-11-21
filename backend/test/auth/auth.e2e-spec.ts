@@ -1,6 +1,7 @@
 import { HttpStatus, INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 
 import { ROLE } from '../../src/auth/constants/role.constant';
 import { LoginInput } from '../../src/auth/dtos/auth-login-input.dto';
@@ -10,6 +11,7 @@ import { AuthTokenOutput } from '../../src/auth/dtos/auth-token-output.dto';
 import { VALIDATION_PIPE_OPTIONS } from '../../src/shared/constants';
 import { LOCALE } from '../../src/shared/constants/locale.constant';
 import { WEIGHT_UNIT } from '../../src/shared/units/weight';
+import { User } from '../../src/user/entities/user.entity';
 import { AppModule } from './../../src/app.module';
 import {
   closeDBAfterTest,
@@ -191,6 +193,31 @@ describe('AuthController (e2e)', () => {
           expect(data).toHaveProperty('accessToken');
           expect(data).toHaveProperty('refreshToken');
         });
+    });
+
+    // Refresh tokens last 90 days, so refresh is where disabling bites.
+    it('should refuse to refresh for a disabled account', async () => {
+      const loginResponse = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send(loginInput);
+      const token: AuthTokenOutput = loginResponse.body.data;
+
+      const users = app.get(DataSource).getRepository(User);
+      await users.update(
+        { email: loginInput.email },
+        { isAccountDisabled: true },
+      );
+      try {
+        await request(app.getHttpServer())
+          .post('/auth/refresh-token')
+          .send({ refreshToken: token.refreshToken })
+          .expect(HttpStatus.UNAUTHORIZED);
+      } finally {
+        await users.update(
+          { email: loginInput.email },
+          { isAccountDisabled: false },
+        );
+      }
     });
   });
 

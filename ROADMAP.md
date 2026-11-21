@@ -251,7 +251,7 @@ The frontend foundation, copied from denwa-alert's and stripped of its screens: 
 - **EN/JP catalogs are homegrown**, not an i18n library: two typed objects (`en.ts`, `ja.ts`) and a ~20-line `t()` with `{name}` placeholders. Two languages and no plurals don't justify react-i18next's runtime and setup; the type system and a test catch the mistakes a library would.
 - **PWA is manifest-only:** installable, with no service worker and no offline mode. Logging needs the network (the agent runs on the server), and a service worker's cache invalidation is a classic source of "users stuck on an old build" bugs.
 - **Local dev is same-origin:** Vite on `:5174` proxies `/api` to the backend on `:3001`, so dev needs no `.env` and no CORS. Production sets `VITE_API_BASE_URL` (Step 9).
-- **Node 24 LTS for the frontend.** Node 20 reached end-of-life in April 2026. npm 10 also crashes resolving a fresh tree for this dependency set, while npm 11 resolves cleanly (it cut `npm audit` findings from 18 inherited from denwa's lockfile to 2, both inside Orval's own dependencies). The npm 11 lockfile needs npm 11 for `npm ci`, so frontend CI runs Node 24.22.3. The backend CI is still on Node 20 and should move too (not done here).
+- **Node 24 LTS for the frontend.** Node 20 reached end-of-life in April 2026. npm 10 also crashes resolving a fresh tree for this dependency set, while npm 11 resolves cleanly (it cut `npm audit` findings from 18 inherited from denwa's lockfile to 2, both inside Orval's own dependencies). The npm 11 lockfile needs npm 11 for `npm ci`, so frontend CI runs Node 24.22.3. (The backend followed the same day; see the changelog.)
 
 ### Done (2026-11-21)
 
@@ -266,7 +266,7 @@ The frontend foundation, copied from denwa-alert's and stripped of its screens: 
   - two deliberate bugs in the locale logic were each caught by a test;
   - in Chromium at iPhone SE size against the real backend through the dev proxy, there was no horizontal scroll, the signed-out redirect worked, and the toggle saved `locale: ja` on the server and survived a reload, with no console errors.
 - **Found for Step 8:**
-  - An expired access token at page load counts as signed out without trying the refresh token. With the backend's 1-hour access and 2-hour refresh lifetimes, users would sign in again almost every visit, so settle session length with the auth screens.
+  - ~~An expired access token at page load counts as signed out without trying the refresh token.~~ Resolved the same day: see the changelog entry on session length.
   - `POST /chat` is SSE, which Orval's fetch client can't read, so the chat screen needs a small streaming reader that reuses the token and refresh logic.
 
 ## Steps 8–11 — detail
@@ -331,6 +331,14 @@ Per-group visibility settings, notifications (so a reaction is only seen when th
 Edit the status column on the milestones table when a step flips state. Add a dated note under `## Changelog` when a scope or sequencing decision changes, so future-you (and future-Claude) can see *why* the plan shifted rather than just *that* it shifted. Newest entries first.
 
 ## Changelog
+
+- **2026-11-21** — **Session length; everything on Node 24.**
+  - **Sessions:** access token 1 hour, refresh token **90 days**, renewed on every refresh, so users stay signed in as long as they open the app at least once every 90 days. A 1-month access token was considered and rejected: the backend trusts access tokens without a database check and logout is client-side, so a leaked token or a disabled account would keep working for a month; with a short access token users see the same thing.
+  - **Backend:** refresh now refuses disabled accounts.
+  - **Frontend:** at load it stays signed in on an expired access token while the refresh token is valid. A refresh that fails for a transient reason (offline, 5xx) keeps the tokens instead of signing out. It no longer tries a refresh on a 401 from a request without a token. That bug was inherited from denwa: a wrong password at login redirected to "session expired".
+  - **Node 24:** the backend moved too (CI, Dockerfiles, `.tool-versions`, `@types/node` 24). npm 11 warns about unreviewed install scripts, so `backend/package.json` records them in `allowScripts`: `bcrypt` (native build) allowed; three funding/telemetry postinstalls denied.
+  - **Verified on Node 24.22.3:** backend build, lint, 230/230 unit and 129/129 e2e tests, and the stub eval at 7/19; frontend 60/60 tests.
+  - **For Step 9:** production must set the same JWT lifetimes in its SSM parameters.
 
 - **2026-11-21** — **Step 7 done.** Frontend scaffold with the "Tomo Gym" name, homegrown typed EN/JP catalogs (no i18n library), a manifest-only PWA (no service worker), the bottom-tab mobile shell, same-origin local dev through a Vite proxy, and frontend CI on Node 24 LTS (Node 20 is end-of-life; the npm 11 lockfile needs it). Two Step 8 follow-ups recorded under Step 7 — Done: session length vs. the expired-token-at-load rule, and an SSE reader for `/chat`.
 - **2026-11-21** — **Step 6 split; 6a done.** Rate limits (after review: chat 15/min, signup 10/hour per IP; MCP per token; login 10/min per IP), USD budgets per user plus a global daily cap checked before every model call, 429s with codes and `Retry-After`, an admin usage report, and `SIGNUP_MODE` (closed by default in production). Email verification is 6b, waiting on the domain. Constitution rule 17 reworded to match.

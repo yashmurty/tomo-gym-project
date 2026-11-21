@@ -16,6 +16,21 @@ function makeJwt(payload: object): string {
   return `header.${btoa(JSON.stringify(payload))}.sig`;
 }
 
+const inAnHour = () => Math.floor(Date.now() / 1000) + 3600;
+const anHourAgo = () => Math.floor(Date.now() / 1000) - 3600;
+
+function storeTokens(accessExp: number, refreshExp: number) {
+  const claims = { sub: 1, email: 'alice@example.com', roles: ['USER'] };
+  localStorage.setItem(
+    'accessToken',
+    makeJwt({ ...claims, iat: 0, exp: accessExp }),
+  );
+  localStorage.setItem(
+    'refreshToken',
+    makeJwt({ sub: 1, iat: 0, exp: refreshExp }),
+  );
+}
+
 function UserDisplay() {
   const { user } = useAuth();
   return <div data-testid="user">{user ? user.email : 'no user'}</div>;
@@ -62,7 +77,7 @@ describe('AuthProvider initialization from localStorage', () => {
     expect(screen.getByTestId('user')).toHaveTextContent('alice@example.com');
   });
 
-  test('treats an expired token as logged out and clears tokens', () => {
+  test('treats an expired token with an unusable refresh token as logged out', () => {
     const past = Math.floor(Date.now() / 1000) - 3600;
     const token = makeJwt({
       sub: 1,
@@ -73,6 +88,35 @@ describe('AuthProvider initialization from localStorage', () => {
     });
     localStorage.setItem('accessToken', token);
     localStorage.setItem('refreshToken', 'rt');
+
+    render(
+      <AuthProvider>
+        <UserDisplay />
+      </AuthProvider>,
+    );
+
+    expect(screen.getByTestId('user')).toHaveTextContent('no user');
+    expect(localStorage.getItem('accessToken')).toBeNull();
+    expect(localStorage.getItem('refreshToken')).toBeNull();
+  });
+
+  // Access tokens last an hour, refresh tokens 90 days: an expired access
+  // token is the normal state when the app is opened again.
+  test('stays signed in on an expired access token while the refresh token is valid', () => {
+    storeTokens(anHourAgo(), inAnHour());
+
+    render(
+      <AuthProvider>
+        <UserDisplay />
+      </AuthProvider>,
+    );
+
+    expect(screen.getByTestId('user')).toHaveTextContent('alice@example.com');
+    expect(localStorage.getItem('refreshToken')).not.toBeNull();
+  });
+
+  test('signs out and clears tokens once the refresh token has expired too', () => {
+    storeTokens(anHourAgo(), anHourAgo());
 
     render(
       <AuthProvider>

@@ -84,6 +84,8 @@ This is the pattern used in [src/user/services/user.service.spec.ts](src/user/se
 
 ## Commands
 
+Node 24 (npm 11; `.tool-versions` pins the exact version). npm 11 asks for dependencies' install scripts to be reviewed, and the decisions live in `allowScripts` in `package.json`: `bcrypt` is allowed (it builds a native module; without it password hashing breaks), and funding/telemetry postinstalls are denied. After adding a dependency, run `npm install-scripts ls` and approve or deny anything new.
+
 ```sh
 npm install                     # install deps
 npm run dev                     # watch mode
@@ -115,6 +117,8 @@ Ports are offset from denwa-alert's (3000 / 5432 / 8080) so both can run at once
 Copy `.env.template` to `.env`. Required vars that need generating, not just filling in:
 
 - `JWT_PUBLIC_KEY_BASE64` / `JWT_PRIVATE_KEY_BASE64` — RS256 keypair, base64-encoded. The app will not boot without these.
+
+Session length: `JWT_ACCESS_TOKEN_EXP_IN_SEC=3600` (1 hour) and `JWT_REFRESH_TOKEN_EXP_IN_SEC=7776000` (90 days). Every refresh issues a new pair, so the 90 days restart on each use. Keep the access token short: `JwtStrategy` trusts its claims without a database lookup, and logout is client-side only, so its lifetime is how long a leaked token or a disabled account keeps working. Disabled accounts are refused at refresh (`AuthService.refreshToken`).
 
 `.env` is gitignored; never commit it.
 

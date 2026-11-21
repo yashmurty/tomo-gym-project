@@ -1,71 +1,51 @@
 import { auth } from './auth';
 import { API_BASE_URL } from './config';
 
-// Token-refresh stampede guard: parallel 401s share one refresh call.
-let isRefreshing = false;
-let refreshPromise: Promise<string | null> | null = null;
+// Parallel 401s share one refresh call.
+let refreshing: Promise<string | null> | null = null;
+
+function refreshOnce(): Promise<string | null> {
+  refreshing ??= auth.refreshToken().finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
+function endSession(): never {
+  auth.clearTokens();
+  window.location.href = '/login?session=expired';
+  throw new Error('Session expired. Please log in again.');
+}
 
 export const customFetch = async <T>(
   url: string,
   options: RequestInit,
 ): Promise<T> => {
-  const makeRequest = async (
-    tokenOverride?: string | null,
-  ): Promise<Response> => {
-    const token =
-      tokenOverride !== undefined ? tokenOverride : auth.getAccessToken();
-
-    return fetch(`${API_BASE_URL}${url}`, {
+  const makeRequest = (token: string | null): Promise<Response> =>
+    fetch(`${API_BASE_URL}${url}`, {
       ...options,
       headers: {
         ...options.headers,
         ...(token && { Authorization: `Bearer ${token}` }),
       },
     });
-  };
 
-  let response = await makeRequest();
+  const token = auth.getAccessToken();
+  let response = await makeRequest(token);
 
-  // Handle 401 Unauthorized — try to refresh the access token once, then retry
-  // the original request. Guard against recursing on the refresh endpoint itself.
-  if (response.status === 401 && !url.includes('/auth/refresh-token')) {
-    if (isRefreshing && refreshPromise) {
-      // Another request is already refreshing — wait for it, then retry.
-      const newToken = await refreshPromise;
-      if (newToken) {
-        response = await makeRequest(newToken);
-      } else {
-        auth.clearTokens();
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login?session=expired';
-        }
-        throw new Error('Session expired. Please login again.');
-      }
-    } else {
-      isRefreshing = true;
-      refreshPromise = auth.refreshToken();
-      try {
-        const newToken = await refreshPromise;
-        if (newToken) {
-          response = await makeRequest(newToken);
-        } else {
-          auth.clearTokens();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login?session=expired';
-          }
-          throw new Error('Session expired. Please login again.');
-        }
-      } catch {
-        auth.clearTokens();
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login?session=expired';
-        }
-        throw new Error('Session expired. Please login again.');
-      } finally {
-        isRefreshing = false;
-        refreshPromise = null;
-      }
-    }
+  // A 401 on a request that carried an access token means it expired (they
+  // last an hour): renew both tokens and retry once. A 401 without a token is
+  // a real answer (e.g. a wrong password at login) and goes to the caller.
+  // If the refresh fails because of the network, that error propagates and
+  // the tokens stay, so a flaky connection never signs anyone out.
+  if (
+    response.status === 401 &&
+    token &&
+    !url.includes('/auth/refresh-token')
+  ) {
+    const newToken = await refreshOnce();
+    if (!newToken) endSession();
+    response = await makeRequest(newToken);
   }
 
   if (!response.ok) {

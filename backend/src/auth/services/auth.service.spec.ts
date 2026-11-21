@@ -227,6 +227,21 @@ describe('AuthService', () => {
       );
     });
 
+    it('should throw exception when the account is disabled', async () => {
+      jest
+        .spyOn(mockedUserService, 'findById')
+        .mockImplementation(async () => ({
+          ...userOutput,
+          isAccountDisabled: true,
+        }));
+      jest.spyOn(service, 'getAuthToken').mockImplementation(() => authToken);
+
+      await expect(service.refreshToken(ctx)).rejects.toThrowError(
+        'This user account has been disabled',
+      );
+      expect(service.getAuthToken).not.toHaveBeenCalled();
+    });
+
     afterEach(() => {
       jest.resetAllMocks();
     });

@@ -2,7 +2,7 @@
   "name": "tomo-gym-backend",
   "private": true,
   "version": "1.0.0",
-  "description": "tomo-gym backend \u2014 NestJS REST API and agent loop for the conversational workout logger.",
+  "description": "tomo-gym backend — NestJS REST API and agent loop for the conversational workout logger.",
   "license": "MIT",
   "contributors": [
     "Yash Murty <yashmurty@gmail.com> (https://github.com/yashmurty)"
@@ -79,7 +79,7 @@
     "@types/bcrypt": "^5.0.2",
     "@types/express": "^5.0.6",
     "@types/jest": "^29.5.14",
-    "@types/node": "^20.19.27",
+    "@types/node": "^24.19.2",
     "@types/passport-jwt": "^4.0.1",
     "@types/passport-local": "^1.0.38",
     "@types/pg": "^8.16.0",
@@ -124,5 +124,11 @@
       "<rootDir>",
       "<rootDir>/../evals"
     ]
+  },
+  "allowScripts": {
+    "bcrypt@5.1.1": true,
+    "@nestjs/core": false,
+    "@compodoc/compodoc": false,
+    "@scarf/scarf": false
   }
 }

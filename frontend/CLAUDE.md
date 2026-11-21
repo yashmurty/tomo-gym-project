@@ -12,7 +12,7 @@ Vite + React + TypeScript SPA, mobile-first and installable as a PWA. Stack is p
 - **Orval**: typed fetch client generated from the backend's Swagger JSON into `src/lib/generated/` (gitignored).
 - **Vitest** + **React Testing Library**: jsdom; tests colocated as `*.test.ts(x)`.
 - **ESLint 10** (flat config) + **Prettier**.
-- **Node 24 / npm 11.** The lockfile is written by npm 11; npm 10's `npm ci` rejects it. CI uses Node 24.22.3.
+- **Node 24 / npm 11.** The lockfile is written by npm 11; npm 10's `npm ci` rejects it. CI uses Node 24.22.3. npm 11 asks for install scripts to be reviewed: decisions live in `allowScripts` in `package.json`. After adding a dependency, run `npm install-scripts ls` and approve or deny anything new.
 
 No state-management library, no form library and no service worker yet. Add one only when a screen needs it (constitution rule 26).
 
@@ -98,7 +98,11 @@ const res = await userControllerUpdateUser(user.id, { locale: 'ja' });
 const updated = res.data.data; // outer .data = backend envelope { data, meta }
 ```
 
-- `customFetch` ([src/lib/api-client.ts](src/lib/api-client.ts)) attaches the Bearer token. On a 401 it refreshes once and retries; parallel 401s share one refresh. If the refresh fails, it clears the tokens and sends the user to `/login?session=expired`. It throws an `Error` whose message comes from the backend's error body. `204` gives `data: undefined`.
+- `customFetch` ([src/lib/api-client.ts](src/lib/api-client.ts)) attaches the Bearer token and throws an `Error` whose message comes from the backend's error body. `204` gives `data: undefined`.
+  - A 401 on a request that **carried a token** means the access token expired. `customFetch` renews both tokens and retries once; parallel 401s share one refresh.
+  - A 401 **without a token** (e.g. a wrong password at login) is a real answer and goes straight to the caller.
+  - If the refresh token is rejected (401), it clears the tokens and sends the user to `/login?session=expired`.
+  - If the refresh fails for a transient reason (offline, a 5xx during a deploy), the error propagates and **the tokens stay**, so a flaky gym connection never signs anyone out.
 - Don't hand-roll `fetch` for REST calls; use the generated functions. (Exception for Step 8: `POST /chat` streams SSE, which Orval's fetch client can't consume, so the chat screen needs a small streaming reader that goes through the same token and refresh logic.)
 - **Base URL:** `API_BASE_URL` ([src/lib/config.ts](src/lib/config.ts)) is `VITE_API_BASE_URL`, or empty. Empty means same-origin: in dev, Vite proxies `/api` to the backend on `:3001`, so local dev needs no `.env` and no CORS. Production sets `VITE_API_BASE_URL` at build time (Step 9).
 - **Sync after backend API changes:** with the backend running, `npm run sync` (download `swagger.json`, then regenerate). Commit the new `swagger.json`. `npm run build` and `npm test` regenerate from the committed spec first.
@@ -107,7 +111,7 @@ const updated = res.data.data; // outer .data = backend envelope { data, meta }
 
 - Access + refresh tokens live in `localStorage` (`accessToken`, `refreshToken`), behind `auth.ts`'s helpers only, so moving to httpOnly cookies later is a one-file change.
 - `useAuth()` gives `user` (decoded from the JWT: id, email, roles), `profile` (the user's own `UserOutput` from `GET /users/me`), `login`, `register` (auto-logs in afterwards), `logout`, `refreshProfile` and `updateProfile(input)` (PATCH `/users/:id`; replaces `profile` with the response).
-- An expired access token at page load counts as signed out (the refresh token isn't tried). Settle this in Step 8 along with session length.
+- **Session length:** access token 1 hour, refresh token 90 days, both renewed on every refresh. Anyone who opens the app at least once every 90 days stays signed in. At page load, an expired access token still counts as signed in while the refresh token is valid; the first API call (`GET /users/me`) gets a 401 and `customFetch` renews both tokens. Keep the access token short: the backend doesn't check it against the database, and logout only deletes the tokens on the device.
 
 ## Testing
 

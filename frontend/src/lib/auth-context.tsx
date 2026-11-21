@@ -49,7 +49,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 function userFromToken(token: string): User | null {
   const payload = decodeJwt<JwtPayload>(token);
-  if (!payload || isExpired(payload)) return null;
+  if (!payload) return null;
   return {
     id: payload.sub,
     email: payload.email,
@@ -57,14 +57,27 @@ function userFromToken(token: string): User | null {
   };
 }
 
+// Who's signed in at page load. The access token lasts an hour and the
+// refresh token 90 days, so an expired access token is normal: while the
+// refresh token is valid the user stays signed in, and the first API call
+// (GET /users/me, right after mount) gets a 401 that customFetch answers by
+// renewing both tokens. Otherwise the tokens are dead: clear them.
+function restoreUser(): User | null {
+  const access = auth.getAccessToken();
+  const claims = access ? decodeJwt<JwtPayload>(access) : null;
+  if (access && claims) {
+    const refresh = auth.getRefreshToken();
+    const refreshClaims = refresh ? decodeJwt<{ exp: number }>(refresh) : null;
+    if (!isExpired(claims) || (refreshClaims && !isExpired(refreshClaims))) {
+      return userFromToken(access);
+    }
+  }
+  auth.clearTokens();
+  return null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    const token = auth.getAccessToken();
-    if (!token) return null;
-    const u = userFromToken(token);
-    if (!u) auth.clearTokens();
-    return u;
-  });
+  const [user, setUser] = useState<User | null>(restoreUser);
   const [profile, setProfile] = useState<UserOutput | null>(null);
 
   const refreshProfile = useCallback(async () => {

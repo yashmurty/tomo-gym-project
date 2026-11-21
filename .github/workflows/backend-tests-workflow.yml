@@ -30,14 +30,14 @@ jobs:
       DB_USER: root
       DB_PASS: example
       JWT_ACCESS_TOKEN_EXP_IN_SEC: 3600
-      JWT_REFRESH_TOKEN_EXP_IN_SEC: 7200
+      JWT_REFRESH_TOKEN_EXP_IN_SEC: 7776000
       DEFAULT_ADMIN_USER_PASSWORD: example_admin_pass
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.19.6
+          node-version: 24.22.3
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
       - run: npm ci

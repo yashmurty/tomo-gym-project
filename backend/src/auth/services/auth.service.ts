@@ -103,6 +103,11 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('Invalid user id');
     }
+    // Refresh tokens live for months and renew on every use, so this is where
+    // a disabled account gets cut off (access tokens expire within the hour).
+    if (user.isAccountDisabled) {
+      throw new UnauthorizedException('This user account has been disabled');
+    }
 
     return this.getAuthToken(ctx, user);
   }
