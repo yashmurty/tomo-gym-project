@@ -1,0 +1,56 @@
+{
+  "name": "tomo-gym-frontend",
+  "description": "Tomo Gym frontend — Vite + React + TypeScript SPA (mobile-first PWA).",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "contributors": [
+    "Yash Murty <yashmurty@gmail.com> (https://github.com/yashmurty)"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run generate:api && tsc -b && vite build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "pretest": "npm run generate:api",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite preview",
+    "download:swagger": "bash scripts/download-swagger.sh",
+    "generate:api": "bash scripts/generate-api-types.sh",
+    "sync": "npm run download:swagger && npm run generate:api"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.14.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.2.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "jsdom": "^29.1.1",
+    "orval": "^7.13.2",
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "tailwindcss": "^4.2.4",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.10",
+    "vitest": "^4.1.5"
+  }
+}

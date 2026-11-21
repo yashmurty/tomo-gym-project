@@ -16,7 +16,7 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 5b | Real model — Anthropic client, first real eval run, system prompt / tool description tuning, model routing | Not started (needs an Anthropic API key) |
 | 6a | Signup gate, part 1 — rate limits (chat, MCP, login, signup), per-user USD budgets, global daily cap, admin usage report, `SIGNUP_MODE` switch | Done |
 | 6b | Signup gate, part 2 — email verification (SES); unverified users can't use the agent. Production signup stays closed until this ships | Not started (blocked on buying the domain) |
-| 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Not started |
+| 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Done |
 | 8 | Frontend screens — auth, chat logger with streaming + undo, history list/edit, profile | Not started |
 | 9 | Deploy (blocked on buying the domain) — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
 | 10 | Tests + evals per feature (constitution rules 14–15) | Ongoing discipline, applied inside each step |
@@ -241,7 +241,35 @@ Email verification needs SES, and SES needs the domain, so it's 6b. Everything e
 - The e2e suites default the limits high (all their requests come from 127.0.0.1); `test/usage/limits.e2e-spec.ts` sets low limits and pins the clock. The parsing eval lifts the per-IP and per-user limits but keeps the global cap as a ceiling on eval spend, and now uses the shared price table.
 - Verified: build and lint clean; 229/229 unit tests; 128/128 e2e tests (10 new: chat limit + `Retry-After`, free replay, daily budget, budget stopping a turn midway, per-token MCP limit, admin report and its denial, login limit before the password check, signup limit, global pause, closed signup); full eval still runs (stub 7/19).
 
-## Steps 7–11 — detail
+## Step 7 — detail
+
+The frontend foundation, copied from denwa-alert's and stripped of its screens: the plumbing Step 8's screens stand on, with placeholder pages.
+
+### Decisions *(2026-11-21)*
+
+- **Name:** the app installs as **"Tomo Gym"**.
+- **EN/JP catalogs are homegrown**, not an i18n library: two typed objects (`en.ts`, `ja.ts`) and a ~20-line `t()` with `{name}` placeholders. Two languages and no plurals don't justify react-i18next's runtime and setup; the type system and a test catch the mistakes a library would.
+- **PWA is manifest-only:** installable, with no service worker and no offline mode. Logging needs the network (the agent runs on the server), and a service worker's cache invalidation is a classic source of "users stuck on an old build" bugs.
+- **Local dev is same-origin:** Vite on `:5174` proxies `/api` to the backend on `:3001`, so dev needs no `.env` and no CORS. Production sets `VITE_API_BASE_URL` (Step 9).
+- **Node 24 LTS for the frontend.** Node 20 reached end-of-life in April 2026. npm 10 also crashes resolving a fresh tree for this dependency set, while npm 11 resolves cleanly (it cut `npm audit` findings from 18 inherited from denwa's lockfile to 2, both inside Orval's own dependencies). The npm 11 lockfile needs npm 11 for `npm ci`, so frontend CI runs Node 24.22.3. The backend CI is still on Node 20 and should move too (not done here).
+
+### Done (2026-11-21)
+
+- **Scaffold** (`frontend/`): Vite 8, React 19, TypeScript, React Router 7, Tailwind v4, Vitest + Testing Library, ESLint 10 + Prettier, and an Orval client generated from tomo's committed `swagger.json`. `customFetch` keeps denwa's refresh-once-on-401 logic. `AuthProvider` reads tomo's `UserOutput` and gains `updateProfile()` (PATCH `/users/:id`).
+- **EN/JP from the first screen** (constitution rule 23). Every string comes from `src/i18n/{en,ja}.ts`. A missing Japanese key fails `tsc`; a test checks that the key sets match, nothing is empty, placeholders agree and no Japanese entry is a copy of the English one. Language: signed in → `User.locale`; signed out → the last language used on the device, else the browser's. The toggle switches at once, saves `User.locale` when signed in, and reverts with a message if the save fails. `<html lang>` follows it.
+- **Mobile shell** (constitution rule 20): a slim header and a fixed bottom tab bar (Log / History / Profile) with 56px targets, safe-area insets (`viewport-fit=cover`) and `min-h-dvh`. Log and History are placeholders. Profile has the language toggle and log out. `/login` is a placeholder until Step 8.
+- **PWA:** `manifest.webmanifest` ("Tomo Gym", standalone, portrait) with placeholder icons: 192, 512, maskable 512 and an Apple touch icon, all rendered from SVG sources in `public/icons/`.
+- **CI:** `frontend-build` and `frontend-tests` workflows (lint, Prettier check, unit tests), triggered by `frontend/**`. No deploy until Step 9.
+- `frontend/CLAUDE.md` covers the conventions: no hardcoded copy, the catalog rules, mobile-first rules, the API client, and testing with `renderWithProviders`.
+- **Verified:**
+  - lint, format check and build are clean, and 51/51 unit tests pass;
+  - two deliberate bugs in the locale logic were each caught by a test;
+  - in Chromium at iPhone SE size against the real backend through the dev proxy, there was no horizontal scroll, the signed-out redirect worked, and the toggle saved `locale: ja` on the server and survived a reload, with no console errors.
+- **Found for Step 8:**
+  - An expired access token at page load counts as signed out without trying the refresh token. With the backend's 1-hour access and 2-hour refresh lifetimes, users would sign in again almost every visit, so settle session length with the auth screens.
+  - `POST /chat` is SSE, which Orval's fetch client can't read, so the chat screen needs a small streaming reader that reuses the token and refresh logic.
+
+## Steps 8–11 — detail
 
 Each gets its own sub-plan when we reach it. Notes so far:
 
@@ -304,6 +332,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-21** — **Step 7 done.** Frontend scaffold with the "Tomo Gym" name, homegrown typed EN/JP catalogs (no i18n library), a manifest-only PWA (no service worker), the bottom-tab mobile shell, same-origin local dev through a Vite proxy, and frontend CI on Node 24 LTS (Node 20 is end-of-life; the npm 11 lockfile needs it). Two Step 8 follow-ups recorded under Step 7 — Done: session length vs. the expired-token-at-load rule, and an SSE reader for `/chat`.
 - **2026-11-21** — **Step 6 split; 6a done.** Rate limits (after review: chat 15/min, signup 10/hour per IP; MCP per token; login 10/min per IP), USD budgets per user plus a global daily cap checked before every model call, 429s with codes and `Retry-After`, an admin usage report, and `SIGNUP_MODE` (closed by default in production). Email verification is 6b, waiting on the domain. Constitution rule 17 reworded to match.
 - **2026-11-20** — **Step 5 split; 5a done.** 5a: the remaining 12 tools, undo for every kind of agent write (conflict-checked: undo never overwrites a later edit), an injectable clock, and the parsing eval (19 cases, runner, grader; stub baseline 7/19). 5b, which needs an API key, covers the Anthropic client, real eval runs, prompt tuning and model routing.
 - **2026-11-20** — **Step 4 done with a stubbed model.** MCP server, turn tokens and personal access tokens, validated tool layer, SSE chat loop as an MCP client, idempotent replay, undo. The real Anthropic client waits for an API key. Two changes found while building: the context block moved from a mid-conversation system message to the first block of the current user message, and tools must state `unit` for weighted sets rather than inheriting the user's display unit.

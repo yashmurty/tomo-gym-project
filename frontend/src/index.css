@@ -1,0 +1,35 @@
+@import 'tailwindcss';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #171717;
+  /* teal-700: white text on it passes WCAG AA (5.5:1) */
+  --color-accent: #0f766e;
+  --color-accent-hover: #115e59;
+  --color-border: #eaeaea;
+  --color-muted: #666666;
+  /* Inter has no Japanese glyphs; JP text falls through to the system's
+     Japanese UI font. */
+  --font-sans:
+    'Inter', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP',
+    'Yu Gothic UI', 'Meiryo', system-ui, sans-serif;
+}
+
+body {
+  @apply bg-background text-foreground min-h-dvh font-sans antialiased;
+  /* No grey flash on tap in mobile Safari / Chrome. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Links inherit colour and have no underline; each call site sets its own
+   hover. In @layer base so utilities on a link (text-accent etc.) win —
+   unlayered rules would beat Tailwind's layered utilities. */
+@layer base {
+  a {
+    @apply text-inherit no-underline transition-colors;
+  }
+}
