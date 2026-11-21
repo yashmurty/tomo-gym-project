@@ -18,9 +18,13 @@ import {
 } from '../../chat/entities/chat-message.entity';
 import { ChatMessageService } from '../../chat/services/chat-message.service';
 import { TurnTokenService } from '../../mcp/services/turn-token.service';
+import { QuotaExceededException } from '../../shared/exceptions/quota-exceeded.exception';
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
 import { Clock } from '../../shared/time/clock';
+import { BudgetService } from '../../usage/services/budget.service';
+import { LlmUsageService } from '../../usage/services/llm-usage.service';
+import { RateLimitService } from '../../usage/services/rate-limit.service';
 import { UserService } from '../../user/services/user.service';
 import { ChatEvent, ChatInput } from '../dtos/chat.dto';
 import {
@@ -52,6 +56,9 @@ export class AgentService {
     private readonly config: ConfigService,
     private readonly logger: AppLogger,
     private readonly clock: Clock,
+    private readonly usage: LlmUsageService,
+    private readonly rateLimits: RateLimitService,
+    private readonly budget: BudgetService,
   ) {
     this.logger.setContext(AgentService.name);
   }
@@ -101,15 +108,45 @@ export class AgentService {
       await this.chat.finishTurn(turn.id, TURN_STATUS.COMPLETED);
       emit({ type: 'done', turnId: turn.id });
     } catch (err) {
+      await this.chat.finishTurn(turn.id, TURN_STATUS.FAILED);
+      if (err instanceof QuotaExceededException) {
+        // Budget ran out mid-turn: what was saved so far stays (undoable).
+        emit({ type: 'error', code: err.code, message: err.message });
+        return;
+      }
       this.logger.error(ctx, `turn ${turn.id} failed`, {
         stack: (err as Error).stack,
       });
-      await this.chat.finishTurn(turn.id, TURN_STATUS.FAILED);
       emit({
         type: 'error',
         message: 'Something went wrong; nothing more was saved.',
       });
     }
+  }
+
+  // Runs before the response starts streaming, so limits come back as a
+  // plain 429 with Retry-After (constitution rule 17). A retry of a stored
+  // message is a free replay: never counted, never blocked.
+  async preflight(ctx: RequestContext, input: ChatInput): Promise<void> {
+    const userId = ctx.user!.id;
+    if (
+      await this.chat.findTurnByIdempotencyKey(userId, input.idempotencyKey)
+    ) {
+      return;
+    }
+
+    const limits = this.config.get<Record<string, number>>('limits')!;
+    await this.rateLimits.consume([
+      {
+        key: `chat:user:${userId}`,
+        window: 'minute',
+        limit: limits.chatPerMinute,
+      },
+      { key: `chat:user:${userId}`, window: 'day', limit: limits.chatPerDay },
+    ]);
+
+    const user = await this.userService.getSelfProfile(ctx);
+    await this.budget.assertWithinBudget(user);
   }
 
   // Undo every change the agent made in a turn (constitution rule 13).
@@ -152,6 +189,8 @@ export class AgentService {
       }));
 
       for (let step = 0; step < MAX_STEPS; step++) {
+        // Before every model call, not just once per turn (rule 17).
+        await this.budget.assertWithinBudget(user);
         const response = await this.llm.createMessage({
           model: this.config.get<string>('llm.model')!,
           system: SYSTEM_PROMPT,
@@ -159,7 +198,7 @@ export class AgentService {
           tools,
           maxTokens: this.config.get<number>('llm.maxTokens')!,
         });
-        await this.chat.recordUsage(user.id, turn.id, {
+        await this.usage.record(user.id, turn.id, {
           model: response.model,
           ...response.usage,
         });

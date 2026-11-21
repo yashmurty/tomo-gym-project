@@ -13,6 +13,24 @@ import { CreateUserInput } from '../src/user/dtos/user-create-input.dto';
 import { UserOutput } from '../src/user/dtos/user-output.dto';
 import { UserService } from '../src/user/services/user.service';
 
+// Every e2e request comes from 127.0.0.1 and suites register many users, so
+// default the signup-gate limits high here. test/usage/limits.e2e-spec.ts
+// sets low values explicitly to test the limits themselves.
+for (const [name, value] of Object.entries({
+  CHAT_RATE_PER_MINUTE: '1000',
+  CHAT_RATE_PER_DAY: '100000',
+  MCP_RATE_PER_MINUTE: '1000',
+  MCP_RATE_PER_DAY: '100000',
+  LOGIN_RATE_PER_MINUTE: '1000',
+  SIGNUP_RATE_PER_HOUR: '1000',
+  USER_DAILY_BUDGET_USD: '1000',
+  USER_MONTHLY_BUDGET_USD: '1000',
+  GLOBAL_DAILY_BUDGET_USD: '1000',
+  SIGNUP_MODE: 'open',
+})) {
+  process.env[name] ??= value;
+}
+
 const TEST_DB_HOST = process.env.TEST_DB_HOST || 'localhost';
 // tomo's docker-compose publishes Postgres on 5433 so it can run alongside
 // denwa-alert's (5432).

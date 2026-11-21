@@ -25,18 +25,11 @@ import { McpEndpoint } from '../../src/agent/services/mcp-endpoint';
 import { AppModule } from '../../src/app.module';
 import { VALIDATION_PIPE_OPTIONS } from '../../src/shared/constants';
 import { Clock } from '../../src/shared/time/clock';
+import { costUsd, MODEL_PRICES } from '../../src/usage/pricing';
 import { CASES, EVAL_TIMEZONE, EvalCase, EvalEntry, FIXED_NOW } from './cases';
 import { DayGrade, gradeDay } from './grader';
 
 const EVAL_DB = 'tomo_gym_eval';
-
-// List prices (USD per million tokens) as of 2026-11; check before relying
-// on them. Unknown models (e.g. the stub) are reported without a cost.
-const PRICES: Record<string, { input: number; output: number }> = {
-  'claude-haiku-5-5': { input: 0.1, output: 0.5 },
-  'claude-sonnet-5-5': { input: 2, output: 10 },
-  'claude-opus-5-5': { input: 4, output: 20 },
-};
 
 interface CaseResult {
   id: string;
@@ -75,6 +68,18 @@ async function main(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   require('dotenv').config();
   process.env.DB_NAME = EVAL_DB;
+  // Every case signs up and logs in a fresh user from this one IP, so lift
+  // the per-IP and per-user signup-gate limits. The global daily cap stays,
+  // as a ceiling on what an eval run can spend.
+  Object.assign(process.env, {
+    SIGNUP_MODE: 'open',
+    SIGNUP_RATE_PER_HOUR: '100000',
+    LOGIN_RATE_PER_MINUTE: '100000',
+    CHAT_RATE_PER_MINUTE: '100000',
+    CHAT_RATE_PER_DAY: '100000',
+    USER_DAILY_BUDGET_USD: '100000',
+    USER_MONTHLY_BUDGET_USD: '100000',
+  });
 
   const onlyArg = process.argv.find((a) => a.startsWith('--only='));
   const only = onlyArg ? onlyArg.slice('--only='.length).split(',') : null;
@@ -134,9 +139,15 @@ async function main(): Promise<void> {
   const pct = Math.round((passed / results.length) * 100);
   console.log(`\n${passed}/${results.length} passed (${pct}%)`);
   for (const u of usage) {
-    const price = PRICES[u.model];
-    const cost = price
-      ? ` ~ $${((u.input * price.input + u.output * price.output) / 1e6).toFixed(4)} at list price (cache discounts ignored)`
+    // Same price table as the budgets; the stub is free.
+    const usd = costUsd(u.model, {
+      inputTokens: u.input,
+      outputTokens: u.output,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    });
+    const cost = MODEL_PRICES[u.model]
+      ? ` ~ $${usd.toFixed(4)} at list price (cache discounts ignored)`
       : '';
     console.log(
       `  ${u.model}: ${u.calls} calls, ${u.input} input / ${u.output} output tokens${cost}`,

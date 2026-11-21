@@ -16,6 +16,9 @@ import { TurnTokenService } from './turn-token.service';
 export interface McpCaller {
   // Which earlier changes undo_last may reverse for this caller.
   undoScope: UndoScope;
+  // Set for external clients (per access token). Our own agent's calls are
+  // already bounded by the chat limits, so they aren't counted again.
+  rateLimitKey?: string;
   ctx: RequestContext;
   // Fixed per request for turn tokens (the chat message); per tool call for
   // personal access tokens (see originForCall).
@@ -78,6 +81,7 @@ export class McpAuthService {
         }),
         // undo_last from an external client: its own earlier calls only.
         undoScope: { prefix: `mcp:${pat.tokenId}:` },
+        rateLimitKey: `mcp:token:${pat.tokenId}`,
       };
     }
 

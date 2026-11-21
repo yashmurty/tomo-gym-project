@@ -21,5 +21,16 @@ export const configModuleOptions: ConfigModuleOptions = {
     JWT_ACCESS_TOKEN_EXP_IN_SEC: Joi.number().required(),
     JWT_REFRESH_TOKEN_EXP_IN_SEC: Joi.number().required(),
     DEFAULT_ADMIN_USER_PASSWORD: Joi.string().required(),
+    // Signup gate (all optional; defaults in configuration.ts).
+    SIGNUP_MODE: Joi.string().valid('open', 'closed').optional(),
+    CHAT_RATE_PER_MINUTE: Joi.number().integer().min(1).optional(),
+    CHAT_RATE_PER_DAY: Joi.number().integer().min(1).optional(),
+    MCP_RATE_PER_MINUTE: Joi.number().integer().min(1).optional(),
+    MCP_RATE_PER_DAY: Joi.number().integer().min(1).optional(),
+    LOGIN_RATE_PER_MINUTE: Joi.number().integer().min(1).optional(),
+    SIGNUP_RATE_PER_HOUR: Joi.number().integer().min(1).optional(),
+    USER_DAILY_BUDGET_USD: Joi.number().min(0).optional(),
+    USER_MONTHLY_BUDGET_USD: Joi.number().min(0).optional(),
+    GLOBAL_DAILY_BUDGET_USD: Joi.number().min(0).optional(),
   }),
 };

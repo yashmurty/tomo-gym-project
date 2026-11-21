@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { plainToClass } from 'class-transformer';
@@ -60,6 +64,11 @@ export class AuthService {
     input: RegisterInput,
   ): Promise<RegisterOutput> {
     this.logger.log(ctx, `${this.register.name} was called`);
+
+    // Closed in production until email verification ships (Step 6b).
+    if (this.configService.get<string>('signupMode') === 'closed') {
+      throw new ForbiddenException('Signup is closed');
+    }
 
     const weightUnit = input.weightUnit ?? WEIGHT_UNIT.KG;
 

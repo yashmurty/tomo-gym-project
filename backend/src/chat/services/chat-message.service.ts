@@ -7,15 +7,6 @@ import {
   ChatMessage,
   TURN_STATUS,
 } from '../entities/chat-message.entity';
-import { LlmUsage } from '../entities/llm-usage.entity';
-
-export interface UsageRecord {
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-}
 
 // Persistence for the chat transcript. No ACL here: every method is scoped
 // by an explicit userId supplied by trusted callers (the agent loop, which
@@ -26,8 +17,6 @@ export class ChatMessageService {
   constructor(
     @InjectRepository(ChatMessage)
     private readonly messages: Repository<ChatMessage>,
-    @InjectRepository(LlmUsage)
-    private readonly usage: Repository<LlmUsage>,
   ) {}
 
   findTurnByIdempotencyKey(
@@ -104,13 +93,5 @@ export class ChatMessageService {
       order: { id: 'ASC' },
     });
     return [...turns, ...rest].sort((a, b) => a.id - b.id);
-  }
-
-  async recordUsage(
-    userId: number,
-    turnId: number,
-    record: UsageRecord,
-  ): Promise<void> {
-    await this.usage.insert({ userId, turnId, ...record });
   }
 }

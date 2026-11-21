@@ -6,6 +6,7 @@ import { JwtAuthStrategy } from '../auth/strategies/jwt-auth.strategy';
 import { ChatModule } from '../chat/chat.module';
 import { McpModule } from '../mcp/mcp.module';
 import { SharedModule } from '../shared/shared.module';
+import { UsageModule } from '../usage/usage.module';
 import { UserModule } from '../user/user.module';
 import { ChatController } from './controllers/chat.controller';
 import { LLM_CLIENT, LlmClient } from './llm/llm-client';
@@ -29,7 +30,14 @@ function llmClientFactory(config: ConfigService): LlmClient {
 }
 
 @Module({
-  imports: [SharedModule, ChatModule, McpModule, UserModule, ActionLogModule],
+  imports: [
+    SharedModule,
+    ChatModule,
+    McpModule,
+    UserModule,
+    ActionLogModule,
+    UsageModule,
+  ],
   providers: [
     AgentService,
     McpToolClient,

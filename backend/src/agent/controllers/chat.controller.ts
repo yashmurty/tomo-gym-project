@@ -41,11 +41,20 @@ export class ChatController {
   })
   @ApiProduces('text/event-stream')
   @ApiResponse({ status: HttpStatus.OK, description: 'SSE stream' })
+  @ApiResponse({
+    status: HttpStatus.TOO_MANY_REQUESTS,
+    description:
+      'Rate limit or budget reached; see error.details.code and the Retry-After header',
+  })
   async send(
     @ReqContext() ctx: RequestContext,
     @Body() input: ChatInput,
     @Res() res: Response,
   ): Promise<void> {
+    // Limits are checked before anything is streamed, so they surface as a
+    // normal 429 + Retry-After (handled by AllExceptionsFilter).
+    await this.agent.preflight(ctx, input);
+
     res.status(HttpStatus.OK).set({
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',

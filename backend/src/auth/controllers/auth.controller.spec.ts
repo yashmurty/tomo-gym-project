@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { AppLogger } from '../../shared/logger/logger.service';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { RateLimitGuard } from '../../usage/rate-limit.guard';
 import { LoginInput } from '../dtos/auth-login-input.dto';
 import { RefreshTokenInput } from '../dtos/auth-refresh-token-input.dto';
 import { RegisterInput } from '../dtos/auth-register-input.dto';
@@ -28,7 +29,11 @@ describe('AuthController', () => {
         { provide: AuthService, useValue: mockedAuthService },
         { provide: AppLogger, useValue: mockedLogger },
       ],
-    }).compile();
+    })
+      // Per-IP limits are covered by test/usage/limits.e2e-spec.ts.
+      .overrideGuard(RateLimitGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     authController = moduleRef.get<AuthController>(AuthController);
   });

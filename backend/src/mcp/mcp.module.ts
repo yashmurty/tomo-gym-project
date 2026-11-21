@@ -7,6 +7,7 @@ import { ActionLogModule } from '../action-log/action-log.module';
 import { ChatModule } from '../chat/chat.module';
 import { ExerciseModule } from '../exercise/exercise.module';
 import { SharedModule } from '../shared/shared.module';
+import { UsageModule } from '../usage/usage.module';
 import { UserModule } from '../user/user.module';
 import { WorkoutModule } from '../workout/workout.module';
 import { McpController } from './controllers/mcp.controller';
@@ -48,6 +49,7 @@ import { UndoLastTool } from './tools/undo.tools';
     ActionLogModule,
     ChatModule,
     ExerciseModule,
+    UsageModule,
     UserModule,
     WorkoutModule,
   ],

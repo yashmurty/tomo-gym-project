@@ -56,6 +56,7 @@ if (!isAllowed) {
 - [src/exercise/services/exercise-acl.service.ts](src/exercise/services/exercise-acl.service.ts) — `ADMIN: Manage`, `USER: List/Create`, `USER: Read` (shared catalog or own custom exercise).
 - [src/action-log/services/action-log-acl.service.ts](src/action-log/services/action-log-acl.service.ts) — `ADMIN: Manage`, `USER: Update` (undo) on own logged actions only.
 - [src/access-token/services/access-token-acl.service.ts](src/access-token/services/access-token-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List`, `USER: Delete` (owner only).
+- [src/usage/services/usage-acl.service.ts](src/usage/services/usage-acl.service.ts) — `ADMIN: Manage` only (the cross-user usage report).
 - [src/workout/services/workout-acl.service.ts](src/workout/services/workout-acl.service.ts) — `ADMIN: Manage`, `USER: Create/List` (own days), `USER: Read/Update/Delete` (owner only, on entries and sessions). Friends' access (Step 12) gets its own rule plus the summary DTO.
 
 ## Testing patterns
@@ -155,6 +156,13 @@ Copy `.env.template` to `.env`. Required vars that need generating, not just fil
 - **Model provider:** `LLM_PROVIDER` (`stub` only for now; refused in production), `LLM_MODEL`, `LLM_MAX_TOKENS`. The stub (`src/agent/llm/stub-llm-client.ts`) is a test double, not the product parser.
 - **`MCP_INTERNAL_URL`:** where the agent reaches `/mcp` (default `http://localhost:$APP_PORT/api/v1/mcp`). E2E tests listen on a real port and override `McpEndpoint`.
 - **Per-request facts** (now, timezone, profile) go in the `<context>` block of the *current* user message only (`system-prompt.ts`). Keep `SYSTEM_PROMPT` byte-stable for caching.
+
+## Signup gate: limits and budgets (Step 6a)
+
+- **Rate limits:** `RateLimitService.consume(rules)` (Postgres fixed-window counters) throws `QuotaExceededException` (429; `AllExceptionsFilter` adds `Retry-After`). Unauthenticated endpoints use `@RateLimitByIp('login' | 'signup')` with `RateLimitGuard`, listed *before* any other guard.
+- **Budgets:** `BudgetService.assertWithinBudget(user)` runs before every model call (`AgentService`) and in `AgentService.preflight()` before streaming. Record every call with `LlmUsageService.record()`. Prices live in `src/usage/pricing.ts`; add a model there before using it, or it's priced like the most expensive one.
+- **Config:** `limits.*`, `budgets.*`, `signupMode` in `configuration.ts`, all optional env vars (listed in `.env.template`).
+- **Tests:** `test/test-utils.ts` defaults every limit high for e2e; `test/usage/limits.e2e-spec.ts` is the place to test limits (low values, pinned `Clock`).
 
 ## Module wiring checklist
 

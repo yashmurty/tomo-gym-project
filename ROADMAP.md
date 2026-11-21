@@ -14,7 +14,8 @@ Rules of the road live in [constitution.md](constitution.md). If the roadmap eve
 | 4 | Agent vertical slice over MCP — tomo MCP server (`/mcp`) + `POST /chat` agent loop as its MCP client → Claude → `log_entry` over HTTP → row in Postgres → streamed confirmation; personal access tokens for external MCP clients; tables for chat messages, agent action log (undo), idempotency, LLM usage | Done with a stubbed model; the real Anthropic client is pending an API key |
 | 5a | Full agent toolset (stub-testable) — corrections, bulk date moves, "same as last time", history Q&A, alias learning, profile, `undo_last`; undo for every agent write; parsing eval cases + runner | Done |
 | 5b | Real model — Anthropic client, first real eval run, system prompt / tool description tuning, model routing | Not started (needs an Anthropic API key) |
-| 6 | Signup gate — email verification (SES), per-user rate limit, token budget, usage reporting (must ship before open signup goes live; SES needs the domain) | Not started |
+| 6a | Signup gate, part 1 — rate limits (chat, MCP, login, signup), per-user USD budgets, global daily cap, admin usage report, `SIGNUP_MODE` switch | Done |
+| 6b | Signup gate, part 2 — email verification (SES); unverified users can't use the agent. Production signup stays closed until this ships | Not started (blocked on buying the domain) |
 | 7 | Frontend scaffold — Vite + React + TypeScript SPA, mobile-first, PWA manifest | Not started |
 | 8 | Frontend screens — auth, chat logger with streaming + undo, history list/edit, profile | Not started |
 | 9 | Deploy (blocked on buying the domain) — backend onto octirion-platform (shared EC2 + RDS), own ECR / S3 + CloudFront / DNS in `infra/` | Not started |
@@ -216,6 +217,30 @@ Everything that can be built and tested without a real model is 5a. Running the 
 
 Required before production signup opens (constitution rules 5 and 17). **Email verification**: the same SES flow as denwa-alert (copy it from there), with unverified users unable to call the agent. **Spend limits**: a per-user request rate limit, a daily and monthly token budget checked before every Claude call, a friendly "limit reached" response, and a simple admin view of per-user spend from `llm_usage`.
 
+### Split into 6a / 6b *(decided 2026-11-21)*
+
+Email verification needs SES, and SES needs the domain, so it's 6b. Everything else is 6a. Budgets are in **USD, not tokens**, so they stay right when Step 5b routes between models with different prices. Chat is limited to **15 messages a minute** (raised from the proposed 10).
+
+### 6a Done (2026-11-21)
+
+- **New `src/usage/` module.** It owns `llm_usage` (moved from the chat module; same table) plus a new `rate_limit_counters` table (migration `CreateRateLimitCounters`): fixed UTC windows, atomic `INSERT … ON CONFLICT … count + 1`, pruned opportunistically. They live in Postgres, so deploys and restarts don't reset them and no Redis is needed.
+- **Limits** (defaults; all env vars, see `backend/.env.template`):
+
+  | What | Limit | Keyed by |
+  |---|---|---|
+  | Chat messages | 15 / minute, 200 / day | user |
+  | `/mcp` calls | 60 / minute, 2,000 / day | access token |
+  | Login | 10 / minute | IP |
+  | Signup | 5 / hour | IP |
+
+  Our own agent's `/mcp` calls (turn tokens) aren't counted again. A retried idempotency key is a free replay: never counted, never blocked. The login limit runs before the password check. `req.ip` trusts exactly one proxy hop in production (Caddy).
+- **Budgets:** $0.05 per user per local day and $1 per local month, plus a **global $5 per UTC day** across all users. They're checked before streaming starts and again **before every model call**, so a turn that runs out halfway stops cleanly: the work saved so far stays and is undoable. Cost = tokens × `src/usage/pricing.ts`, where unknown models are priced like the most expensive one so a missing entry can't switch budgets off, and the stub is free.
+- **429s:** `QuotaExceededException` → `AllExceptionsFilter` sets `Retry-After`; the body's `error.details.code` is `rate_limited` / `daily_budget` / `monthly_budget` / `service_paused`. A limit that stops a turn mid-stream arrives as an SSE `error` event with the same `code`.
+- **Admin:** `GET /admin/usage?from=&to=` (UTC dates): per user, turns, calls, tokens and estimated cost, most expensive first. Admin only, via `UsageAclService` and `UsageReportService`.
+- **`SIGNUP_MODE=open|closed`:** `closed` → 403 "Signup is closed". It defaults to closed when `APP_ENV=production`, until 6b.
+- The e2e suites default the limits high (all their requests come from 127.0.0.1); `test/usage/limits.e2e-spec.ts` sets low limits and pins the clock. The parsing eval lifts the per-IP and per-user limits but keeps the global cap as a ceiling on eval spend, and now uses the shared price table.
+- Verified: build and lint clean; 229/229 unit tests; 128/128 e2e tests (10 new: chat limit + `Retry-After`, free replay, daily budget, budget stopping a turn midway, per-token MCP limit, admin report and its denial, login limit before the password check, signup limit, global pause, closed signup); full eval still runs (stub 7/19).
+
 ## Steps 7–11 — detail
 
 Each gets its own sub-plan when we reach it. Notes so far:
@@ -263,7 +288,7 @@ Per-group visibility settings, notifications (so a reaction is only seen when th
 ## Sequencing notes
 
 - **1 → 2 → 3 → 4 → 5** is the backend critical path; each step needs the previous schema.
-- **6 must ship before production signup opens.** It can be built in parallel with 5. Its email-verification half needs the domain (SES identity); the spend-limit half doesn't.
+- **6b (email verification) must ship before production signup opens** (6a is done); `SIGNUP_MODE` keeps production closed until then. It can be built in parallel with 5. Its email-verification half needs the domain (SES identity); the spend-limit half doesn't.
 - **7 can start any time after 4** (the SSE contract is the thing to stabilise); 8 needs 5 for undo/edit.
 - **12 comes after 5 and 8 and before launch (11 goes live).** It needs the day DTOs from 3 and the core screens from 8.
 - **9 pulls forward opportunistically once the domain is bought.** Deploying the Step 4 slice behind closed signup is a good early smoke test. Until then, all work runs locally.
@@ -279,6 +304,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
+- **2026-11-21** — **Step 6 split; 6a done.** Rate limits (chat 15/min after review, MCP per token, login and signup per IP), USD budgets per user plus a global daily cap checked before every model call, 429s with codes and `Retry-After`, an admin usage report, and `SIGNUP_MODE` (closed by default in production). Email verification is 6b, waiting on the domain. Constitution rule 17 reworded to match.
 - **2026-11-20** — **Step 5 split; 5a done.** 5a: the remaining 12 tools, undo for every kind of agent write (conflict-checked: undo never overwrites a later edit), an injectable clock, and the parsing eval (19 cases, runner, grader; stub baseline 7/19). 5b, which needs an API key, covers the Anthropic client, real eval runs, prompt tuning and model routing.
 - **2026-11-20** — **Step 4 done with a stubbed model.** MCP server, turn tokens and personal access tokens, validated tool layer, SSE chat loop as an MCP client, idempotent replay, undo. The real Anthropic client waits for an API key. Two changes found while building: the context block moved from a mid-conversation system message to the first block of the current user message, and tools must state `unit` for weighted sets rather than inheriting the user's display unit.
 - **2026-11-20** — **Step 3 done.** Exercise catalog (EN/JP aliases), sessions, entries + sets, calorie maths, computed day numbers and REST CRUD. Chat transcript, undo log, idempotency and LLM usage moved to Step 4, where they're first used. Found and fixed a node-postgres `DATE` → local-midnight `Date` conversion on raw queries that would have shifted days on servers east of UTC. Details under Step 3 — Done.

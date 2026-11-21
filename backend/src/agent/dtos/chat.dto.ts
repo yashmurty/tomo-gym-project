@@ -32,4 +32,6 @@ export type ChatEvent =
       error?: string;
     }
   | { type: 'done'; turnId: number }
-  | { type: 'error'; message: string };
+  // `code` is set when a limit stopped the turn (rate_limited, daily_budget,
+  // monthly_budget, service_paused).
+  | { type: 'error'; message: string; code?: string };

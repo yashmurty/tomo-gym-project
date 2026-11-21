@@ -10,6 +10,7 @@ import { Request, Response } from 'express';
 
 import { REQUEST_ID_TOKEN_HEADER } from '../constants';
 import { BaseApiException } from '../exceptions/base-api.exception';
+import { QuotaExceededException } from '../exceptions/quota-exceeded.exception';
 import { AppLogger } from '../logger/logger.service';
 import { createRequestContext } from '../request-context/util';
 
@@ -90,6 +91,9 @@ export class AllExceptionsFilter<T> implements ExceptionFilter {
       error.message = 'Internal server error';
     }
 
+    if (exception instanceof QuotaExceededException) {
+      res.setHeader('Retry-After', String(exception.retryAfterSec));
+    }
     res.status(statusCode).json({ error });
   }
 }

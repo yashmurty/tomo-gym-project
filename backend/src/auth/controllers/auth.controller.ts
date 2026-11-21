@@ -18,6 +18,7 @@ import {
 import { AppLogger } from '../../shared/logger/logger.service';
 import { ReqContext } from '../../shared/request-context/req-context.decorator';
 import { RequestContext } from '../../shared/request-context/request-context.dto';
+import { RateLimitByIp, RateLimitGuard } from '../../usage/rate-limit.guard';
 import { LoginInput } from '../dtos/auth-login-input.dto';
 import { RefreshTokenInput } from '../dtos/auth-refresh-token-input.dto';
 import { RegisterInput } from '../dtos/auth-register-input.dto';
@@ -49,7 +50,9 @@ export class AuthController {
     type: BaseApiErrorResponse,
   })
   @HttpCode(HttpStatus.OK)
-  @UseGuards(LocalAuthGuard)
+  // The IP limit runs first, before the password is even checked.
+  @RateLimitByIp('login')
+  @UseGuards(RateLimitGuard, LocalAuthGuard)
   @UseInterceptors(ClassSerializerInterceptor)
   login(
     @ReqContext() ctx: RequestContext,
@@ -63,6 +66,8 @@ export class AuthController {
   }
 
   @Post('register')
+  @RateLimitByIp('signup')
+  @UseGuards(RateLimitGuard)
   @ApiOperation({
     summary: 'User registration API',
   })

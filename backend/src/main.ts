@@ -11,6 +11,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api/v1');
 
+  // Behind Caddy in production: trust exactly one proxy hop, so req.ip (used
+  // for per-IP rate limits) is the client address, not a value the client
+  // could forge in X-Forwarded-For.
+  if (process.env.APP_ENV === 'production') {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  }
+
   app.useGlobalPipes(new ValidationPipe(VALIDATION_PIPE_OPTIONS));
   app.use(RequestIdMiddleware);
   app.enableCors();

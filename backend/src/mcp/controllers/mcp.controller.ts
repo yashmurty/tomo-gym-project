@@ -13,6 +13,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ApiBearerAuth,
   ApiExcludeEndpoint,
@@ -21,6 +22,7 @@ import {
 } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 
+import { RateLimitService } from '../../usage/services/rate-limit.service';
 import { McpAuthService, McpCaller } from '../services/mcp-auth.service';
 import { ToolRegistry } from '../tools/tool-registry.service';
 
@@ -33,6 +35,8 @@ export class McpController {
   constructor(
     private readonly auth: McpAuthService,
     private readonly registry: ToolRegistry,
+    private readonly rateLimits: RateLimitService,
+    private readonly config: ConfigService,
   ) {}
 
   @Post()
@@ -45,6 +49,17 @@ export class McpController {
   async handle(@Req() req: Request, @Res() res: Response): Promise<void> {
     // Throws 401 before anything is written to the response.
     const caller = await this.auth.authenticate(req);
+    if (caller.rateLimitKey) {
+      const limits = this.config.get<Record<string, number>>('limits')!;
+      await this.rateLimits.consume([
+        {
+          key: caller.rateLimitKey,
+          window: 'minute',
+          limit: limits.mcpPerMinute,
+        },
+        { key: caller.rateLimitKey, window: 'day', limit: limits.mcpPerDay },
+      ]);
+    }
 
     const server = this.buildServer(caller);
     const transport = new StreamableHTTPServerTransport({

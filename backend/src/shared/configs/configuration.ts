@@ -2,6 +2,11 @@
 // differ per environment (e.g. frontend URLs, SES sender) will live in
 // per-APP_ENV tables here once a feature needs them — see denwa-alert's
 // configuration.ts for that pattern (email verification lands in Step 6).
+const int = (name: string, fallback: number): number =>
+  process.env[name] ? parseInt(process.env[name]!, 10) : fallback;
+const usd = (name: string, fallback: number): number =>
+  process.env[name] ? parseFloat(process.env[name]!) : fallback;
+
 export default (): any => ({
   env: process.env.APP_ENV,
   port: process.env.APP_PORT,
@@ -40,6 +45,26 @@ export default (): any => ({
       ? parseInt(process.env.LLM_MAX_TOKENS, 10)
       : 1024,
   },
+  // Signup gate (roadmap Step 6). Every number is an env var so it can be
+  // tuned without a deploy of new code.
+  limits: {
+    chatPerMinute: int('CHAT_RATE_PER_MINUTE', 15),
+    chatPerDay: int('CHAT_RATE_PER_DAY', 200),
+    mcpPerMinute: int('MCP_RATE_PER_MINUTE', 60),
+    mcpPerDay: int('MCP_RATE_PER_DAY', 2000),
+    loginPerMinute: int('LOGIN_RATE_PER_MINUTE', 10),
+    signupPerHour: int('SIGNUP_RATE_PER_HOUR', 5),
+  },
+  budgets: {
+    userDailyUsd: usd('USER_DAILY_BUDGET_USD', 0.05),
+    userMonthlyUsd: usd('USER_MONTHLY_BUDGET_USD', 1),
+    globalDailyUsd: usd('GLOBAL_DAILY_BUDGET_USD', 5),
+  },
+  // 'closed' rejects new signups. Production defaults to closed until email
+  // verification (Step 6b) ships.
+  signupMode:
+    process.env.SIGNUP_MODE ??
+    (process.env.APP_ENV === 'production' ? 'closed' : 'open'),
   mcp: {
     // Where our agent loop reaches tomo's own MCP server (loopback).
     internalUrl:
