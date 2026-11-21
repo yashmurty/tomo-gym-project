@@ -53,7 +53,7 @@ export default (): any => ({
     mcpPerMinute: int('MCP_RATE_PER_MINUTE', 60),
     mcpPerDay: int('MCP_RATE_PER_DAY', 2000),
     loginPerMinute: int('LOGIN_RATE_PER_MINUTE', 10),
-    signupPerHour: int('SIGNUP_RATE_PER_HOUR', 5),
+    signupPerHour: int('SIGNUP_RATE_PER_HOUR', 10),
   },
   budgets: {
     userDailyUsd: usd('USER_DAILY_BUDGET_USD', 0.05),

@@ -219,7 +219,7 @@ Required before production signup opens (constitution rules 5 and 17). **Email v
 
 ### Split into 6a / 6b *(decided 2026-11-21)*
 
-Email verification needs SES, and SES needs the domain, so it's 6b. Everything else is 6a. Budgets are in **USD, not tokens**, so they stay right when Step 5b routes between models with different prices. Chat is limited to **15 messages a minute** (raised from the proposed 10).
+Email verification needs SES, and SES needs the domain, so it's 6b. Everything else is 6a. Budgets are in **USD, not tokens**, so they stay right when Step 5b routes between models with different prices. Chat is limited to **15 messages a minute** (raised from the proposed 10) and signup to **10 per hour per IP** (raised from 5); login stays at 10 per minute.
 
 ### 6a Done (2026-11-21)
 
@@ -231,7 +231,7 @@ Email verification needs SES, and SES needs the domain, so it's 6b. Everything e
   | Chat messages | 15 / minute, 200 / day | user |
   | `/mcp` calls | 60 / minute, 2,000 / day | access token |
   | Login | 10 / minute | IP |
-  | Signup | 5 / hour | IP |
+  | Signup | 10 / hour | IP |
 
   Our own agent's `/mcp` calls (turn tokens) aren't counted again. A retried idempotency key is a free replay: never counted, never blocked. The login limit runs before the password check. `req.ip` trusts exactly one proxy hop in production (Caddy).
 - **Budgets:** $0.05 per user per local day and $1 per local month, plus a **global $5 per UTC day** across all users. They're checked before streaming starts and again **before every model call**, so a turn that runs out halfway stops cleanly: the work saved so far stays and is undoable. Cost = tokens × `src/usage/pricing.ts`, where unknown models are priced like the most expensive one so a missing entry can't switch budgets off, and the stub is free.
@@ -304,7 +304,7 @@ Edit the status column on the milestones table when a step flips state. Add a da
 
 ## Changelog
 
-- **2026-11-21** — **Step 6 split; 6a done.** Rate limits (chat 15/min after review, MCP per token, login and signup per IP), USD budgets per user plus a global daily cap checked before every model call, 429s with codes and `Retry-After`, an admin usage report, and `SIGNUP_MODE` (closed by default in production). Email verification is 6b, waiting on the domain. Constitution rule 17 reworded to match.
+- **2026-11-21** — **Step 6 split; 6a done.** Rate limits (after review: chat 15/min, signup 10/hour per IP; MCP per token; login 10/min per IP), USD budgets per user plus a global daily cap checked before every model call, 429s with codes and `Retry-After`, an admin usage report, and `SIGNUP_MODE` (closed by default in production). Email verification is 6b, waiting on the domain. Constitution rule 17 reworded to match.
 - **2026-11-20** — **Step 5 split; 5a done.** 5a: the remaining 12 tools, undo for every kind of agent write (conflict-checked: undo never overwrites a later edit), an injectable clock, and the parsing eval (19 cases, runner, grader; stub baseline 7/19). 5b, which needs an API key, covers the Anthropic client, real eval runs, prompt tuning and model routing.
 - **2026-11-20** — **Step 4 done with a stubbed model.** MCP server, turn tokens and personal access tokens, validated tool layer, SSE chat loop as an MCP client, idempotent replay, undo. The real Anthropic client waits for an API key. Two changes found while building: the context block moved from a mid-conversation system message to the first block of the current user message, and tools must state `unit` for weighted sets rather than inheriting the user's display unit.
 - **2026-11-20** — **Step 3 done.** Exercise catalog (EN/JP aliases), sessions, entries + sets, calorie maths, computed day numbers and REST CRUD. Chat transcript, undo log, idempotency and LLM usage moved to Step 4, where they're first used. Found and fixed a node-postgres `DATE` → local-midnight `Date` conversion on raw queries that would have shifted days on servers east of UTC. Details under Step 3 — Done.
